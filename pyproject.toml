@@ -25,6 +25,11 @@ dependencies = [
     "tenacity>=9.0",
     "aiolimiter>=1.1",
     "structlog>=24.0",
+    "lightgbm>=4.6.0",
+    "optuna>=4.8.0",
+    "shap>=0.51.0",
+    "scikit-learn>=1.8.0",
+    "numpy>=2.4.3",
 ]
 
 [project.optional-dependencies]
