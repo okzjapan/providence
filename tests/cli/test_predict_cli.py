@@ -1,0 +1,35 @@
+from datetime import datetime
+
+from providence.cli.predict import build_prediction_rows
+from providence.domain.enums import TicketType
+from providence.strategy.types import DecisionContext, EvaluationMode, RecommendedBet, StrategyRunResult
+
+
+def test_build_prediction_rows_keeps_candidate_rows_for_skipped_strategy():
+    candidate = RecommendedBet(
+        ticket_type=TicketType.WIN,
+        combination=(1,),
+        probability=0.2,
+        odds_value=5.0,
+        expected_value=0.0,
+        confidence_score=0.8,
+        kelly_fraction=0.01,
+        recommended_bet=0.0,
+    )
+    strategy = StrategyRunResult(
+        race_id=1,
+        model_version="v001",
+        decision_context=DecisionContext(
+            judgment_time=datetime(2025, 6, 15, 10, 0, 0),
+            evaluation_mode=EvaluationMode.LIVE,
+        ),
+        confidence_score=0.8,
+        candidate_bets=[candidate],
+        recommended_bets=[],
+        skip_reason="rounded_below_minimum",
+    )
+
+    rows = build_prediction_rows(1, "v001", datetime(2025, 6, 15, 10, 0, 0), strategy)
+    assert len(rows) == 1
+    assert rows[0].recommended_bet == 0.0
+    assert rows[0].skip_reason == "rounded_below_minimum"

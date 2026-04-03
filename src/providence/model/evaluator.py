@@ -94,6 +94,11 @@ class Evaluator:
                 "n_unique": series.n_unique(),
                 "mean": float(series.mean()) if is_numeric else None,
                 "std": float(series.std()) if is_numeric else None,
+                "min": float(series.min()) if is_numeric else None,
+                "max": float(series.max()) if is_numeric else None,
+                "q10": float(series.quantile(0.10)) if is_numeric else None,
+                "q50": float(series.quantile(0.50)) if is_numeric else None,
+                "q90": float(series.quantile(0.90)) if is_numeric else None,
             }
         return stats
 

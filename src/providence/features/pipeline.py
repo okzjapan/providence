@@ -61,20 +61,27 @@ class FeaturePipeline:
         """Build features for one target race using prior history only."""
         if race_entries_df.is_empty():
             return race_entries_df
+        features = self.build_features_for_races(race_entries_df, history_df)
+        race_id = race_entries_df["race_id"][0]
+        return features.filter(pl.col("race_id") == race_id).sort("post_position")
+
+    def build_features_for_races(self, race_entries_df: pl.DataFrame, history_df: pl.DataFrame) -> pl.DataFrame:
+        """Build features for multiple same-cutoff races in one pass."""
+        if race_entries_df.is_empty():
+            return race_entries_df
 
         target_date = race_entries_df["race_date"][0]
-        target_race_number = race_entries_df["race_number"][0]
-
+        target_race_numbers = tuple(int(value) for value in race_entries_df["race_number"].unique().to_list())
         eligible_same_day = history_df.filter(
-            (pl.col("race_date") == target_date) & (pl.col("race_number") < target_race_number)
+            (pl.col("race_date") == target_date) & (pl.col("race_number") < min(target_race_numbers))
         )
         eligible_before = history_df.filter(pl.col("race_date") < target_date)
         base_history = pl.concat([eligible_before, eligible_same_day], how="vertical_relaxed")
 
         combined = pl.concat([base_history, race_entries_df], how="vertical_relaxed")
         features = self.build_features(combined)
-        race_id = race_entries_df["race_id"][0]
-        return features.filter(pl.col("race_id") == race_id).sort("post_position")
+        target_race_ids = race_entries_df["race_id"].unique(maintain_order=True).to_list()
+        return features.filter(pl.col("race_id").is_in(target_race_ids)).sort(["race_number", "race_id", "post_position"])
 
     def build_and_cache(self, raw_df: pl.DataFrame, cache_path: str) -> pl.DataFrame:
         path = Path(cache_path)

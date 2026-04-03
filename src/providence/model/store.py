@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import lightgbm as lgb
@@ -16,7 +16,14 @@ class ModelStore:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    def save(self, model: lgb.Booster, metadata: dict, version: str | None = None) -> str:
+    def save(
+        self,
+        model: lgb.Booster,
+        metadata: dict,
+        version: str | None = None,
+        *,
+        update_latest: bool = True,
+    ) -> str:
         version = version or self._next_version()
         version_dir = self.base_dir / version
         version_dir.mkdir(parents=True, exist_ok=True)
@@ -28,8 +35,17 @@ class ModelStore:
             "created_at": datetime.now(UTC).isoformat(),
         }
         (version_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
-        (self.base_dir / "latest").write_text(version)
+        if update_latest:
+            (self.base_dir / "latest").write_text(version)
         return version
+
+    def save_candidate(self, model: lgb.Booster, metadata: dict, version: str | None = None) -> str:
+        return self.save(model, metadata, version=version, update_latest=False)
+
+    def promote(self, version: str) -> str:
+        actual_version = self._resolve_version(version)
+        (self.base_dir / "latest").write_text(actual_version)
+        return actual_version
 
     def version_dir(self, version: str = "latest") -> Path:
         return self.base_dir / self._resolve_version(version)
@@ -40,6 +56,53 @@ class ModelStore:
         model = lgb.Booster(model_file=str(version_dir / "model.txt"))
         metadata = json.loads((version_dir / "metadata.json").read_text())
         return model, metadata
+
+    def latest_version(self) -> str:
+        latest_file = self.base_dir / "latest"
+        if not latest_file.exists():
+            raise FileNotFoundError("No latest model found")
+        return latest_file.read_text().strip()
+
+    def latest_metadata(self) -> dict:
+        _, metadata = self.load("latest")
+        return metadata
+
+    def load_for_backtest(self, as_of_date: date, mode: str = "fixed", version: str | None = None) -> tuple[lgb.Booster, dict]:
+        """Resolve a model version for backtests without leaking future artifacts."""
+        if mode == "fixed":
+            return self.load(version or "latest")
+
+        candidates = []
+        for metadata in self.list_versions():
+            trained_through = self._trained_through_date(metadata)
+            if trained_through is None:
+                continue
+            if trained_through <= as_of_date:
+                candidates.append(metadata)
+
+        if not candidates:
+            raise FileNotFoundError(f"No model available for backtest date {as_of_date}")
+
+        selected = max(candidates, key=lambda item: self._trained_through_date(item) or date.min)
+        return self.load(str(selected["version"]))
+
+    @staticmethod
+    def _trained_through_date(metadata: dict) -> date | None:
+        trained_through = metadata.get("trained_through_date")
+        if trained_through:
+            return date.fromisoformat(trained_through)
+
+        split = metadata.get("split")
+        if isinstance(split, dict):
+            val = split.get("val")
+            if isinstance(val, list) and len(val) == 2 and val[1]:
+                return date.fromisoformat(val[1])
+
+        data_range = metadata.get("data_range")
+        if isinstance(data_range, dict) and data_range.get("end"):
+            return date.fromisoformat(data_range["end"])
+
+        return None
 
     def list_versions(self) -> list[dict]:
         versions: list[dict] = []

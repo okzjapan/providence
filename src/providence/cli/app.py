@@ -37,8 +37,11 @@ def main() -> None:
 
 # Register sub-command groups
 from providence.cli.db import db_app  # noqa: E402
+from providence.cli.backtest import backtest_command  # noqa: E402
 from providence.cli.model import model_app  # noqa: E402
 from providence.cli.predict import predict_command  # noqa: E402
+from providence.cli.report import report_command  # noqa: E402
+from providence.cli.retrain import retrain_command  # noqa: E402
 from providence.cli.scrape import scrape_app  # noqa: E402
 from providence.cli.train import train_command  # noqa: E402
 
@@ -47,3 +50,6 @@ app.add_typer(db_app, name="db", help="Database management commands")
 app.add_typer(model_app, name="model", help="Model management commands")
 app.command(name="train")(train_command)
 app.command(name="predict")(predict_command)
+app.command(name="backtest")(backtest_command)
+app.command(name="report")(report_command)
+app.command(name="retrain")(retrain_command)

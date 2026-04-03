@@ -68,6 +68,8 @@ class Race(Base):
     track: Mapped[Track] = relationship(back_populates="races")
     entries: Mapped[list["RaceEntry"]] = relationship(back_populates="race", cascade="all, delete-orphan")
     odds_snapshots: Mapped[list["OddsSnapshot"]] = relationship(back_populates="race", cascade="all, delete-orphan")
+    payouts: Mapped[list["TicketPayout"]] = relationship(back_populates="race", cascade="all, delete-orphan")
+    strategy_runs: Mapped[list["StrategyRun"]] = relationship(back_populates="race", cascade="all, delete-orphan")
     predictions: Mapped[list["Prediction"]] = relationship(back_populates="race", cascade="all, delete-orphan")
 
 
@@ -111,7 +113,10 @@ class RaceResult(Base):
 
 class OddsSnapshot(Base):
     __tablename__ = "odds_snapshot"
-    __table_args__ = (Index("ix_odds_race_type", "race_id", "ticket_type"),)
+    __table_args__ = (
+        Index("ix_odds_race_type", "race_id", "ticket_type"),
+        Index("ix_odds_race_batch", "race_id", "ingestion_batch_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
@@ -119,9 +124,50 @@ class OddsSnapshot(Base):
     combination: Mapped[str] = mapped_column(String, nullable=False)
     odds_value: Mapped[float] = mapped_column(Float, nullable=False)
     popularity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ingestion_batch_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_name: Mapped[str | None] = mapped_column(String, nullable=True)
     captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     race: Mapped[Race] = relationship(back_populates="odds_snapshots")
+
+
+class TicketPayout(Base):
+    __tablename__ = "ticket_payouts"
+    __table_args__ = (
+        UniqueConstraint("race_id", "ticket_type", "combination", name="uq_ticket_payout_identity"),
+        Index("ix_ticket_payout_race_type", "race_id", "ticket_type"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
+    ticket_type: Mapped[str] = mapped_column(String, nullable=False)
+    combination: Mapped[str] = mapped_column(String, nullable=False)
+    payout_value: Mapped[float] = mapped_column(Float, nullable=False)
+    popularity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    settled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    race: Mapped[Race] = relationship(back_populates="payouts")
+
+
+class StrategyRun(Base):
+    __tablename__ = "strategy_runs"
+    __table_args__ = (Index("ix_strategy_run_race_judgment", "race_id", "judgment_time"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
+    model_version: Mapped[str] = mapped_column(String, nullable=False)
+    evaluation_mode: Mapped[str] = mapped_column(String, nullable=False, default="live")
+    judgment_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    bankroll_before: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bankroll_after: Mapped[float | None] = mapped_column(Float, nullable=True)
+    race_cap_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    total_recommended_bet: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    race: Mapped[Race] = relationship(back_populates="strategy_runs")
+    predictions: Mapped[list["Prediction"]] = relationship(back_populates="strategy_run")
 
 
 class Prediction(Base):
@@ -129,6 +175,7 @@ class Prediction(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
+    strategy_run_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("strategy_runs.id"), nullable=True)
     model_version: Mapped[str] = mapped_column(String, nullable=False)
     predicted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     ticket_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -139,8 +186,10 @@ class Prediction(Base):
     kelly_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
     recommended_bet: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)
 
     race: Mapped[Race] = relationship(back_populates="predictions")
+    strategy_run: Mapped["StrategyRun | None"] = relationship(back_populates="predictions")
     betting_log: Mapped["BettingLog | None"] = relationship(back_populates="prediction", uselist=False)
 
 
@@ -154,12 +203,16 @@ class BettingLog(Base):
     payout: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     profit: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     bankroll_after: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reconciled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     prediction: Mapped[Prediction] = relationship(back_populates="betting_log")
 
 
 class ModelPerformance(Base):
     __tablename__ = "model_performance"
+    __table_args__ = (
+        UniqueConstraint("model_version", "evaluation_date", "window", name="uq_model_performance_identity"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     model_version: Mapped[str] = mapped_column(String, nullable=False)
@@ -172,6 +225,22 @@ class ModelPerformance(Base):
     ndcg: Mapped[float | None] = mapped_column(Float, nullable=True)
     roi: Mapped[float | None] = mapped_column(Float, nullable=True)
     calibration_error: Mapped[float | None] = mapped_column(Float, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class FeedbackRun(Base):
+    __tablename__ = "feedback_runs"
+    __table_args__ = (
+        Index("ix_feedback_runs_job_executed", "job_name", "executed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_name: Mapped[str] = mapped_column(String, nullable=False)
+    model_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    evaluation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="success")
+    details: Mapped[str | None] = mapped_column(String, nullable=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
 
 class ScrapeLog(Base):

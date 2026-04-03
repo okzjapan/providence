@@ -31,3 +31,15 @@ def db_stats() -> None:
         table.add_row(name, str(count))
 
     console.print(table)
+
+
+@db_app.command("backfill-payouts")
+def backfill_payouts() -> None:
+    """Backfill legacy payout rows from odds_snapshot into ticket_payouts."""
+    session_factory = get_session_factory()
+    repo = Repository()
+
+    with session_factory() as session:
+        inserted = repo.backfill_legacy_payouts(session)
+
+    console.print(f"[green]Backfilled {inserted} legacy payout rows into ticket_payouts.[/green]")

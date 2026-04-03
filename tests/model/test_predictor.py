@@ -85,5 +85,46 @@ def test_predictor_returns_all_ticket_types(tmp_path: Path):
 
     predictor = Predictor(store, pipeline, DummyLoader(history_raw))
     predictor.load_history(date(2021, 1, 4))
-    probs = predictor.predict_race(target_df)
-    assert set(probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"}
+    bundle = predictor.predict_race(target_df)
+    assert set(bundle.ticket_probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"}
+    assert bundle.model_version == "v001"
+    assert bundle.index_map.index_to_post_position == (1, 2, 3)
+
+
+def test_predictor_predict_races_batches_same_day(tmp_path: Path):
+    pipeline = FeaturePipeline()
+    raw = _raw_df().with_columns(
+        pl.when(pl.col("race_date") == date(2021, 1, 4))
+        .then(pl.col("race_id") + 10)
+        .otherwise(pl.col("race_id"))
+        .alias("race_id"),
+        pl.when(pl.col("race_date") == date(2021, 1, 4))
+        .then(2)
+        .otherwise(pl.col("race_number"))
+        .alias("race_number"),
+    )
+    second_race = raw.filter(pl.col("race_date") == date(2021, 1, 3)).with_columns(
+        pl.lit(date(2021, 1, 4)).alias("race_date"),
+        pl.lit(1).alias("race_number"),
+        (pl.col("race_id") + 20).alias("race_id"),
+        (pl.col("race_entry_id") + 200).alias("race_entry_id"),
+    )
+    raw = pl.concat([raw, second_race], how="vertical_relaxed")
+    features = pipeline.build_features(raw)
+    train_df = features.filter(pl.col("race_date") < date(2021, 1, 4))
+    history_raw = raw.filter(pl.col("race_date") < date(2021, 1, 4))
+    target_df = raw.filter(pl.col("race_date") == date(2021, 1, 4)).sort(["race_number", "post_position"])
+    artifacts = Trainer(pipeline=pipeline).train_lambdarank(train_df, train_df)
+
+    store = ModelStore(base_dir=str(tmp_path / "models"))
+    store.save(
+        artifacts.model,
+        {"temperature": 1.0, "feature_columns": artifacts.feature_columns},
+        version="v001",
+    )
+
+    predictor = Predictor(store, pipeline, DummyLoader(history_raw))
+    predictor.load_history(date(2021, 1, 4))
+    bundles = predictor.predict_races(target_df)
+    assert len(bundles) == 2
+    assert all(set(bundle.ticket_probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"} for bundle in bundles.values())

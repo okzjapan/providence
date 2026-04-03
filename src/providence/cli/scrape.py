@@ -194,6 +194,74 @@ async def _scrape_players() -> None:
         )
 
 
+@scrape_app.command("odds")
+def scrape_odds(
+    date_str: str = typer.Option(..., "--date", help="Date (YYYY-MM-DD)"),
+    track_name: str = typer.Option(..., "--track", help="Track name"),
+    race_no: int | None = typer.Option(None, "--race", help="Race number"),
+) -> None:
+    """Collect market odds snapshots for one track/day."""
+    asyncio.run(_scrape_odds(date_str, track_name, race_no))
+
+
+async def _scrape_odds(date_str: str, track_name: str, race_no: int | None) -> None:
+    race_date = _parse_date(date_str)
+    track = _resolve_track(track_name)
+    if track is None:
+        raise typer.Exit(1)
+
+    settings = get_settings()
+    session_factory = get_session_factory(settings)
+    repo = Repository()
+    target_races = [race_no] if race_no is not None else list(range(1, 13))
+    saved = 0
+    errors = 0
+    start = time.monotonic()
+
+    async with AutoraceJpScraper(settings) as scraper:
+        for target_race in target_races:
+            try:
+                odds = await scraper.get_odds(track, race_date, target_race)
+            except Exception as exc:
+                errors += 1
+                structlog.get_logger().warning(
+                    "scrape_odds_fail",
+                    track=track.name,
+                    race_date=str(race_date),
+                    race_no=target_race,
+                    error=str(exc),
+                )
+                continue
+
+            if not odds.odds:
+                continue
+
+            with session_factory() as session:
+                race = repo.get_race(session, track.value, race_date, target_race)
+                if race is None:
+                    continue
+                saved += repo.save_odds(
+                    session,
+                    race.id,
+                    odds.odds,
+                    source_name="autorace_jp",
+                )
+
+    elapsed = time.monotonic() - start
+    console.print(f"[green]Saved {saved} odds rows with {errors} errors in {elapsed:.1f}s[/green]")
+    with session_factory() as session:
+        repo.log_scrape(
+            session,
+            source="autorace_jp",
+            target="odds",
+            target_date=race_date,
+            track_id=track.value,
+            records_count=saved,
+            status="success" if errors == 0 else "partial",
+            duration_sec=elapsed,
+        )
+
+
 @scrape_app.command("historical")
 def scrape_historical(
     from_date: str = typer.Option(..., "--from", help="Start date (YYYY-MM-DD)"),

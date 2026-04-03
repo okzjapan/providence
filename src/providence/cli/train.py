@@ -5,21 +5,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-import lightgbm as lgb
-import numpy as np
-import pandas as pd
-import polars as pl
-import sklearn
 import typer
 from rich.console import Console
-
-from providence.features.loader import DataLoader
-from providence.features.pipeline import FeaturePipeline
-from providence.model.evaluator import Evaluator
-from providence.model.split import SplitStrategy, apply_split
-from providence.model.store import ModelStore
-from providence.model.trainer import Trainer
-from providence.probability.calibration import TemperatureScaler
 
 console = Console()
 
@@ -33,6 +20,18 @@ def train_command(
     compare_with: str | None = typer.Option(None, help="Compare against an existing model version"),
     shap_samples: int = typer.Option(1000, help="Sample size for SHAP importance"),
 ) -> None:
+    import lightgbm as lgb
+    import numpy as np
+    import sklearn
+
+    from providence.features.loader import DataLoader
+    from providence.features.pipeline import FeaturePipeline
+    from providence.model.evaluator import Evaluator
+    from providence.model.split import SplitStrategy, apply_split
+    from providence.model.store import ModelStore
+    from providence.model.trainer import Trainer
+    from providence.probability.calibration import TemperatureScaler
+
     if (train_end and not val_end) or (val_end and not train_end):
         console.print("[red]--train-end と --val-end は両方指定するか、両方省略してください。[/red]")
         raise typer.Exit(1)
@@ -106,6 +105,8 @@ def train_command(
             "val": [split.val_start.isoformat(), split.val_end.isoformat()],
             "test": [split.test_start.isoformat(), split.test_end.isoformat()],
         },
+        "trained_through_date": split.val_end.isoformat(),
+        "validation_end_date": split.val_end.isoformat(),
         "data_range": {
             "start": raw_df["race_date"].min().isoformat(),
             "end": raw_df["race_date"].max().isoformat(),
@@ -132,6 +133,11 @@ def train_command(
 
 
 def _scores_per_race(model, df, feature_columns):
+    import pandas as pd
+    import polars as pl
+
+    from providence.features.pipeline import FeaturePipeline
+
     ordered = df.sort(["race_date", "race_number", "race_id", "post_position"])
 
     X = pd.DataFrame(
