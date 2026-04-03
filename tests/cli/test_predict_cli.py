@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from providence.cli.predict import build_prediction_rows
+import polars as pl
+
+from providence.cli.predict import build_prediction_rows, get_missing_trial_positions
 from providence.domain.enums import TicketType
 from providence.strategy.types import DecisionContext, EvaluationMode, RecommendedBet, StrategyRunResult
 
@@ -33,3 +35,14 @@ def test_build_prediction_rows_keeps_candidate_rows_for_skipped_strategy():
     assert len(rows) == 1
     assert rows[0].recommended_bet == 0.0
     assert rows[0].skip_reason == "rounded_below_minimum"
+
+
+def test_get_missing_trial_positions_returns_missing_cars():
+    race_df = pl.DataFrame(
+        {
+            "post_position": [1, 2, 3, 4],
+            "trial_time": [3.40, None, 3.36, None],
+        }
+    )
+
+    assert get_missing_trial_positions(race_df) == [2, 4]

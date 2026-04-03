@@ -49,6 +49,14 @@ def predict_command(
         console.print("[red]対象レースのデータがありません。先に `providence scrape day` を実行してください。[/red]")
         raise typer.Exit(1)
 
+    missing_trial_positions = get_missing_trial_positions(race_df)
+    if missing_trial_positions:
+        cars = ", ".join(str(position) for position in missing_trial_positions)
+        console.print(
+            "[yellow]Warning: 試走タイムが未取得の車があります。"
+            f" 対象車番: {cars}. 予測精度に影響する可能性があります。[/yellow]"
+        )
+
     predictor.load_history(target_date)
     bundle = predictor.predict_race(race_df)
 
@@ -166,3 +174,10 @@ def build_prediction_rows(
             )
         )
     return rows
+
+
+def get_missing_trial_positions(race_df: pl.DataFrame) -> list[int]:
+    if "trial_time" not in race_df.columns:
+        return []
+    missing_df = race_df.filter(pl.col("trial_time").is_null()).sort("post_position")
+    return [int(value) for value in missing_df["post_position"].to_list()]
