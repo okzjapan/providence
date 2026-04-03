@@ -9,13 +9,14 @@ TRACK_VALUE="${PROVIDENCE_OP_TRACK:-}"
 RACE_VALUE="${PROVIDENCE_OP_RACE:-}"
 JUDGMENT_TIME_VALUE="${PROVIDENCE_OP_JUDGMENT_TIME:-}"
 MODEL_VERSION_VALUE="${PROVIDENCE_OP_MODEL_VERSION:-latest}"
-BANKROLL_VALUE="${PROVIDENCE_OP_BANKROLL:-10000}"
+BANKROLL_VALUE="${PROVIDENCE_OP_BANKROLL:-1000000}"
 
 usage() {
   cat <<'EOF'
 Usage:
   scripts/phase4_daily_ops.sh scrape-day
   scripts/phase4_daily_ops.sh scrape-odds
+  scripts/phase4_daily_ops.sh scrape-results
   scripts/phase4_daily_ops.sh predict
   scripts/phase4_daily_ops.sh report
   scripts/phase4_daily_ops.sh backtest
@@ -26,7 +27,7 @@ Environment variables:
   PROVIDENCE_OP_RACE            Race number for predict
   PROVIDENCE_OP_JUDGMENT_TIME   ISO8601 for predict / HH:MM for backtest
   PROVIDENCE_OP_MODEL_VERSION   Model version (default: latest)
-  PROVIDENCE_OP_BANKROLL        Bankroll amount (default: 10000)
+  PROVIDENCE_OP_BANKROLL        Bankroll amount (default: 1000000)
 EOF
 }
 
@@ -45,6 +46,10 @@ case "${1:-}" in
   scrape-odds)
     require_track
     exec uv run providence scrape odds --date "$DATE_VALUE" --track "$TRACK_VALUE"
+    ;;
+  scrape-results)
+    require_track
+    exec uv run providence scrape results --date "$DATE_VALUE" --track "$TRACK_VALUE"
     ;;
   predict)
     require_track

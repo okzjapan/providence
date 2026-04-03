@@ -2,6 +2,8 @@
 
 from datetime import date, datetime
 
+import pytest
+
 from providence.database.repository import Repository
 from providence.database.tables import OddsSnapshot, Race, RaceEntry, RaceResult, Rider, TicketPayout, Track
 from providence.domain.enums import EntryStatus, Grade, TicketType, TrackCode
@@ -125,6 +127,31 @@ class TestSaveRaceData:
         with session_factory() as session:
             assert session.query(Race).count() == 1
             assert session.query(Rider).count() == 8
+
+    def test_second_save_updates_trial_times(self, session_factory):
+        repo = Repository()
+        with session_factory() as session:
+            repo.ensure_tracks(session)
+
+        entries_resp = _sample_entries_response()
+        updated_entries = entries_resp.model_copy(
+            update={
+                "entries": [
+                    entry.model_copy(update={"trial_time": 3.30 + idx * 0.01})
+                    for idx, entry in enumerate(entries_resp.entries, start=1)
+                ]
+            }
+        )
+
+        with session_factory() as session:
+            repo.save_race_data(session, entries_resp, None)
+        with session_factory() as session:
+            repo.save_race_data(session, updated_entries, None)
+
+        with session_factory() as session:
+            rows = session.query(RaceEntry).order_by(RaceEntry.post_position).all()
+            assert rows[0].trial_time == pytest.approx(3.31)
+            assert rows[-1].trial_time == pytest.approx(3.38)
 
     def test_refund_to_ticket_payout_conversion(self, session_factory):
         repo = Repository()

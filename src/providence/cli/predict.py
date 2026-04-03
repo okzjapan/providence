@@ -12,6 +12,7 @@ from rich.table import Table
 from providence.database.engine import get_session_factory
 from providence.database.repository import Repository
 from providence.database.tables import Prediction, StrategyRun
+from providence.config import DEFAULT_BANKROLL_JPY
 from providence.domain.enums import TrackCode
 from providence.features.loader import DataLoader
 from providence.features.pipeline import FeaturePipeline
@@ -28,7 +29,7 @@ def predict_command(
     date_str: str = typer.Option(..., "--date", help="Race date (YYYY-MM-DD)"),
     track: str = typer.Option(..., "--track", help="Track name"),
     race: int = typer.Option(..., "--race", help="Race number"),
-    bankroll: float = typer.Option(10_000, "--bankroll", help="Bankroll in JPY"),
+    bankroll: float = typer.Option(DEFAULT_BANKROLL_JPY, "--bankroll", help="Bankroll in JPY"),
     model_version: str = typer.Option("latest", "--model-version", help="Model version to use"),
     judgment_time: str | None = typer.Option(None, "--judgment-time", help="ISO8601 cutoff time for odds selection"),
     save: bool = typer.Option(False, "--save", help="Persist the strategy run"),

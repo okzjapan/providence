@@ -27,12 +27,14 @@ providence scrape players                    # 選手マスタ収集
 providence scrape day --date 2026-03-29      # 特定日データ収集
 providence scrape odds --date 2026-03-29 --track 川口 --race 12  # 市場オッズ取得
 providence scrape historical --from 2024-01-01 --to 2024-12-31 --resume  # 過去データ
-providence predict --date 2026-03-29 --track 川口 --race 12 --bankroll 10000
+providence predict --date 2026-03-29 --track 川口 --race 12 --bankroll 1000000
 providence backtest --from 2026-03-01 --to 2026-03-31 --judgment-time 10:00 --evaluation-mode fixed --model-version v003
 providence report
 providence report --refresh
 providence retrain --compare-window-days 28
 ```
+
+`providence scrape today` の `On Sale Race` は、`autorace.jp` の `nowRaceNo` を表示しており、通常は「現在発売中/次に発走するレース番号」を意味する。直前に確定した結果は `Last Result` に表示される。
 
 ## Phase 3 運用メモ
 
@@ -62,6 +64,7 @@ cp scripts/phase4_env.example .env.phase4
 source .env.phase4
 scripts/phase4_daily_ops.sh scrape-day
 scripts/phase4_daily_ops.sh scrape-odds
+scripts/phase4_daily_ops.sh scrape-results
 scripts/phase4_daily_ops.sh predict
 scripts/phase4_daily_ops.sh report
 ```
@@ -72,12 +75,15 @@ cron 例:
 0 7 * * * cd /path/to/providence && source .env.phase4 && scripts/phase4_daily_ops.sh scrape-day >> data/logs/phase4.log 2>&1
 0 10 * * * cd /path/to/providence && source .env.phase4 && scripts/phase4_daily_ops.sh scrape-odds >> data/logs/phase4.log 2>&1
 5 10 * * * cd /path/to/providence && source .env.phase4 && scripts/phase4_daily_ops.sh predict >> data/logs/phase4.log 2>&1
+0 22 * * * cd /path/to/providence && source .env.phase4 && scripts/phase4_daily_ops.sh scrape-results >> data/logs/phase4.log 2>&1
 0 22 * * * cd /path/to/providence && source .env.phase4 && scripts/phase4_daily_ops.sh report >> data/logs/phase4.log 2>&1
 ```
 
 運用上の注意:
 
 - `report` は Phase 4 では最小の運用確認コマンドであり、`scrape_log`, `strategy_runs`, `predictions`, `latest model` の確認を目的にする。
+- `scrape odds` は市場オッズ取得だけでなく、その時点の `Program` を再取得して試走タイムを `race_entries` に反映する。
+- レース終了後の結果反映は `scrape results` を実行する。日中の `scrape day` 1回だけでは、終了後の着順・払戻が未反映のことがある。
 - `retrain` や本格的な成績追跡は Phase 5 の責務。
 - CI に移行する場合も、まずはこの README のコマンド列をそのままジョブ化する想定にする。
 

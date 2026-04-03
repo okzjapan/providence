@@ -2,6 +2,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_BANKROLL_JPY = 1_000_000
+
 
 class Settings(BaseSettings):
     db_url: str = "sqlite:///data/providence.db"

@@ -60,7 +60,10 @@ async def _scrape_today() -> None:
     table = Table(title="Today's Races")
     table.add_column("Track", style="cyan")
     table.add_column("Grade", style="green")
-    table.add_column("Current Race", justify="right")
+    table.add_column("On Sale Race", justify="right")
+    table.add_column("Last Result", justify="right")
+    table.add_column("Start")
+    table.add_column("Vote Close")
     table.add_column("Weather")
     table.add_column("Track Cond.")
     table.add_column("Temp")
@@ -70,6 +73,9 @@ async def _scrape_today() -> None:
             item.get("placeName", ""),
             item.get("gradeName", ""),
             str(item.get("nowRaceNo", "")),
+            str(item.get("resultRaceNo", "")),
+            item.get("raceStartTime", ""),
+            item.get("telvoteTime", ""),
             item.get("weather", ""),
             "",
             f"{item.get('temp', '')}℃",
@@ -221,6 +227,7 @@ async def _scrape_odds(date_str: str, track_name: str, race_no: int | None) -> N
     async with AutoraceJpScraper(settings) as scraper:
         for target_race in target_races:
             try:
+                entries = await scraper.get_race_entries(track, race_date, target_race)
                 odds = await scraper.get_odds(track, race_date, target_race)
             except Exception as exc:
                 errors += 1
@@ -237,7 +244,9 @@ async def _scrape_odds(date_str: str, track_name: str, race_no: int | None) -> N
                 continue
 
             with session_factory() as session:
-                race = repo.get_race(session, track.value, race_date, target_race)
+                race = repo.save_race_data(session, entries, None) if entries.entries else repo.get_race(
+                    session, track.value, race_date, target_race
+                )
                 if race is None:
                     continue
                 saved += repo.save_odds(
@@ -258,6 +267,65 @@ async def _scrape_odds(date_str: str, track_name: str, race_no: int | None) -> N
             track_id=track.value,
             records_count=saved,
             status="success" if errors == 0 else "partial",
+            duration_sec=elapsed,
+        )
+
+
+@scrape_app.command("results")
+def scrape_results(
+    date_str: str = typer.Option(..., "--date", help="Date (YYYY-MM-DD)"),
+    track_name: str | None = typer.Option(None, "--track", help="Track name (e.g. hamamatsu)"),
+) -> None:
+    """Refresh race results for a specific date after races complete."""
+    asyncio.run(_scrape_results(date_str, track_name))
+
+
+async def _scrape_results(date_str: str, track_name: str | None) -> None:
+    race_date = _parse_date(date_str)
+    track = _resolve_track(track_name)
+    settings = get_settings()
+    session_factory = get_session_factory(settings)
+    repo = Repository()
+    log = structlog.get_logger()
+
+    tracks = [track] if track else list(TrackCode)
+    total = 0
+    errors = 0
+    start = time.monotonic()
+
+    async with AutoraceJpScraper(settings) as scraper:
+        for t in tracks:
+            for race_no in range(1, 13):
+                try:
+                    result = await scraper.get_race_result(t, race_date, race_no)
+                    if not result.results:
+                        continue
+                    entries = await scraper.get_race_entries(t, race_date, race_no)
+                except Exception as exc:
+                    errors += 1
+                    log.warning("scrape_results_fetch_fail", track=t.name, race_no=race_no, error=str(exc))
+                    continue
+
+                try:
+                    with session_factory() as session:
+                        repo.save_race_data(session, entries, result)
+                        total += 1
+                except Exception as exc:
+                    errors += 1
+                    log.error("scrape_results_save_fail", track=t.name, race_no=race_no, error=str(exc))
+
+    elapsed = time.monotonic() - start
+    status = "success" if errors == 0 else "partial"
+    console.print(f"[green]Refreshed {total} race results with {errors} errors in {elapsed:.1f}s[/green]")
+    with session_factory() as session:
+        repo.log_scrape(
+            session,
+            source="autorace_jp",
+            target="results_refresh",
+            target_date=race_date,
+            track_id=track.value if track else None,
+            records_count=total,
+            status=status,
             duration_sec=elapsed,
         )
 
