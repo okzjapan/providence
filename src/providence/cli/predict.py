@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, date, datetime
 
 import polars as pl
@@ -9,18 +10,20 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from providence.cli.strategy_options import build_strategy_config
+from providence.config import get_settings
 from providence.database.engine import get_session_factory
 from providence.database.repository import Repository
 from providence.database.tables import Prediction, StrategyRun
-from providence.config import DEFAULT_BANKROLL_JPY
 from providence.domain.enums import TrackCode
 from providence.features.loader import DataLoader
 from providence.features.pipeline import FeaturePipeline
 from providence.model.predictor import Predictor
 from providence.model.store import ModelStore
+from providence.scraper.autorace_jp import AutoraceJpScraper
 from providence.strategy.normalize import format_combination, market_odds_from_rows
 from providence.strategy.optimizer import run_strategy
-from providence.strategy.types import DecisionContext, EvaluationMode, StrategyConfig, StrategyRunResult
+from providence.strategy.types import DecisionContext, EvaluationMode, StrategyRunResult
 
 console = Console()
 
@@ -29,10 +32,12 @@ def predict_command(
     date_str: str = typer.Option(..., "--date", help="Race date (YYYY-MM-DD)"),
     track: str = typer.Option(..., "--track", help="Track name"),
     race: int = typer.Option(..., "--race", help="Race number"),
-    bankroll: float = typer.Option(DEFAULT_BANKROLL_JPY, "--bankroll", help="Bankroll in JPY"),
     model_version: str = typer.Option("latest", "--model-version", help="Model version to use"),
     judgment_time: str | None = typer.Option(None, "--judgment-time", help="ISO8601 cutoff time for odds selection"),
     save: bool = typer.Option(False, "--save", help="Persist the strategy run"),
+    ticket_types: str | None = typer.Option(None, "--ticket-types", help="Comma-separated ticket types to bet on (e.g. win,wide)"),
+    max_candidates: int | None = typer.Option(None, "--max-candidates", help="Max candidate bets per race"),
+    fractional_kelly: float | None = typer.Option(None, "--fractional-kelly", help="Kelly fraction multiplier (default 0.25)"),
 ) -> None:
     target_date = date.fromisoformat(date_str)
     track_code = TrackCode.from_name(track)
@@ -42,6 +47,7 @@ def predict_command(
     predictor = Predictor(ModelStore(), pipeline, loader, version=model_version)
     session_factory = get_session_factory()
     repo = Repository()
+    program_sync_warning = asyncio.run(_refresh_race_entries(target_date, track_code, race, repo, session_factory))
 
     race_df = loader.load_race_dataset(start_date=target_date, end_date=target_date).filter(
         (pl.col("track_id") == track_code.value) & (pl.col("race_number") == race)
@@ -50,11 +56,13 @@ def predict_command(
         console.print("[red]対象レースのデータがありません。先に `providence scrape day` を実行してください。[/red]")
         raise typer.Exit(1)
 
+    if program_sync_warning is not None:
+        console.print(f"[yellow]{program_sync_warning}[/yellow]")
     missing_trial_positions = get_missing_trial_positions(race_df)
-    if missing_trial_positions:
+    if missing_trial_positions and program_sync_warning is None:
         cars = ", ".join(str(position) for position in missing_trial_positions)
         console.print(
-            "[yellow]Warning: 試走タイムが未取得の車があります。"
+            "[yellow]Warning: 最新 Program 同期後も試走タイムが未取得の車があります。"
             f" 対象車番: {cars}. 予測精度に影響する可能性があります。[/yellow]"
         )
 
@@ -63,6 +71,11 @@ def predict_command(
 
     with session_factory() as session:
         odds_rows = repo.get_latest_market_odds(session, bundle.race_id, judgment_time=decision_time)
+    config = build_strategy_config(
+        ticket_types=ticket_types,
+        max_candidates=max_candidates,
+        fractional_kelly=fractional_kelly,
+    )
     market_odds = market_odds_from_rows(odds_rows)
     strategy = run_strategy(
         bundle,
@@ -73,8 +86,7 @@ def predict_command(
             timezone="UTC",
             provenance="cli.predict",
         ),
-        bankroll=bankroll,
-        config=StrategyConfig(),
+        config=config,
     )
 
     table = Table(title=f"{track_code.japanese_name} {target_date} R{race}")
@@ -91,21 +103,24 @@ def predict_command(
     recommendation_table.add_column("Prob", justify="right")
     recommendation_table.add_column("Odds", justify="right")
     recommendation_table.add_column("EV", justify="right")
-    recommendation_table.add_column("Kelly", justify="right")
+    recommendation_table.add_column("Weight", justify="right")
     recommendation_table.add_column("Bet", justify="right")
 
     display_bets = strategy.recommended_bets or strategy.candidate_bets
     if display_bets:
-        selected_keys = {(bet.ticket_type, bet.combination): bet for bet in strategy.recommended_bets}
+        selected_keys = {
+            (b.ticket_type, b.combination): b for b in strategy.recommended_bets
+        }
         for bet in display_bets:
-            final_bet = selected_keys.get((bet.ticket_type, bet.combination), bet).recommended_bet if strategy.recommended_bets else 0.0
+            matched = selected_keys.get((bet.ticket_type, bet.combination), bet)
+            final_bet = matched.recommended_bet if strategy.recommended_bets else 0.0
             recommendation_table.add_row(
                 bet.ticket_type.value,
                 format_combination(bet.ticket_type, bet.combination),
                 f"{bet.probability:.3f}",
                 f"{bet.odds_value:.2f}",
                 f"{bet.expected_value:.3f}",
-                f"{bet.kelly_fraction:.4f}",
+                f"{bet.stake_weight:.4f}",
                 f"{final_bet:.0f}",
             )
     else:
@@ -124,9 +139,7 @@ def predict_command(
                 model_version=bundle.model_version,
                 evaluation_mode=EvaluationMode.LIVE.value,
                 judgment_time=decision_time,
-                bankroll_before=strategy.bankroll_before,
-                bankroll_after=strategy.bankroll_after,
-                race_cap_fraction=StrategyConfig().race_cap_fraction,
+                stake_sizing_rule="min_100_normalized",
                 confidence_score=strategy.confidence_score,
                 skip_reason=strategy.skip_reason,
                 total_recommended_bet=strategy.total_recommended_bet,
@@ -169,6 +182,7 @@ def build_prediction_rows(
                 odds_at_prediction=bet.odds_value,
                 expected_value=bet.expected_value,
                 kelly_fraction=bet.kelly_fraction,
+                stake_weight=bet.stake_weight,
                 recommended_bet=selected.recommended_bet if selected is not None else 0.0,
                 confidence_score=bet.confidence_score,
                 skip_reason=bet.skip_reason if selected is not None else strategy.skip_reason,
@@ -182,3 +196,28 @@ def get_missing_trial_positions(race_df: pl.DataFrame) -> list[int]:
         return []
     missing_df = race_df.filter(pl.col("trial_time").is_null()).sort("post_position")
     return [int(value) for value in missing_df["post_position"].to_list()]
+
+
+async def _refresh_race_entries(
+    target_date: date,
+    track_code: TrackCode,
+    race_no: int,
+    repo: Repository,
+    session_factory,
+) -> str | None:
+    settings = get_settings()
+    try:
+        async with AutoraceJpScraper(settings) as scraper:
+            entries = await scraper.get_race_entries(track_code, target_date, race_no)
+    except Exception as exc:  # noqa: BLE001
+        return f"Warning: 最新 Program の取得に失敗したため、既存 DB データで予測します。({exc})"
+
+    if not entries.entries:
+        return "Warning: 最新 Program に出走情報が無いため、既存 DB データで予測します。"
+
+    try:
+        with session_factory() as session:
+            repo.save_race_data(session, entries, None, update_race_metadata=False)
+    except Exception as exc:  # noqa: BLE001
+        return f"Warning: 最新 Program の保存に失敗したため、既存 DB データで予測します。({exc})"
+    return None

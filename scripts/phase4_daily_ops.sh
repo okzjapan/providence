@@ -9,7 +9,6 @@ TRACK_VALUE="${PROVIDENCE_OP_TRACK:-}"
 RACE_VALUE="${PROVIDENCE_OP_RACE:-}"
 JUDGMENT_TIME_VALUE="${PROVIDENCE_OP_JUDGMENT_TIME:-}"
 MODEL_VERSION_VALUE="${PROVIDENCE_OP_MODEL_VERSION:-latest}"
-BANKROLL_VALUE="${PROVIDENCE_OP_BANKROLL:-1000000}"
 
 usage() {
   cat <<'EOF'
@@ -27,7 +26,6 @@ Environment variables:
   PROVIDENCE_OP_RACE            Race number for predict
   PROVIDENCE_OP_JUDGMENT_TIME   ISO8601 for predict / HH:MM for backtest
   PROVIDENCE_OP_MODEL_VERSION   Model version (default: latest)
-  PROVIDENCE_OP_BANKROLL        Bankroll amount (default: 1000000)
 EOF
 }
 
@@ -62,7 +60,6 @@ case "${1:-}" in
       --track "$TRACK_VALUE" \
       --race "$RACE_VALUE" \
       --model-version "$MODEL_VERSION_VALUE" \
-      --bankroll "$BANKROLL_VALUE" \
       --judgment-time "$JUDGMENT_TIME_VALUE" \
       --save
     ;;

@@ -21,6 +21,7 @@ from providence.database.tables import (
     RaceResult,
     Rider,
     ScrapeLog,
+    SimulationRun,
     StrategyRun,
     TicketPayout,
     Track,
@@ -63,10 +64,12 @@ class Repository:
         session: Session,
         entries_resp: RaceEntriesResponse,
         result_resp: RaceResultResponse | None = None,
+        *,
+        update_race_metadata: bool = False,
     ) -> Race:
         """Save one race atomically (entries + optional results + refunds)."""
         with session.begin():
-            race = self._upsert_race(session, entries_resp)
+            race = self._upsert_race(session, entries_resp, update_metadata=update_race_metadata)
             self._upsert_riders_from_entries(session, entries_resp.entries)
             self._upsert_race_entries(session, race, entries_resp.entries)
 
@@ -218,6 +221,22 @@ class Repository:
             grouped.setdefault(int(row.race_id), []).append(row)
         return grouped
 
+    def save_simulation_run(self, session: Session, simulation_run: SimulationRun) -> SimulationRun:
+        """Persist a simulation run header."""
+        transaction = session.begin_nested() if session.in_transaction() else session.begin()
+        with transaction:
+            session.add(simulation_run)
+            session.flush()
+        return simulation_run
+
+    def get_simulation_runs(self, session: Session, *, limit: int = 20) -> list[SimulationRun]:
+        """List recent simulation runs."""
+        return list(
+            session.execute(
+                select(SimulationRun).order_by(SimulationRun.created_at.desc()).limit(limit)
+            ).scalars()
+        )
+
     def save_strategy_run(
         self,
         session: Session,
@@ -241,8 +260,12 @@ class Repository:
         race_ids: list[int] | None = None,
         since_date: date | None = None,
     ) -> list[StrategyRun]:
-        """Return the latest StrategyRun per race by judgment and creation time."""
-        query = select(StrategyRun)
+        """Return the latest *live* StrategyRun per race.
+
+        Replay runs (those with a non-NULL ``simulation_run_id``) are excluded
+        by default so that reconcile / performance / report stay live-only.
+        """
+        query = select(StrategyRun).where(StrategyRun.simulation_run_id.is_(None))
         if race_ids:
             query = query.where(StrategyRun.race_id.in_(race_ids))
         if since_date is not None:
@@ -262,6 +285,20 @@ class Repository:
         for run in runs:
             latest_by_race.setdefault(int(run.race_id), run)
         return list(latest_by_race.values())
+
+    def get_strategy_runs_for_simulation(
+        self,
+        session: Session,
+        simulation_run_id: int,
+    ) -> list[StrategyRun]:
+        """Return all StrategyRuns belonging to a specific simulation run."""
+        return list(
+            session.execute(
+                select(StrategyRun)
+                .where(StrategyRun.simulation_run_id == simulation_run_id)
+                .order_by(StrategyRun.race_id, StrategyRun.id)
+            ).scalars()
+        )
 
     def get_predictions_for_strategy_runs(self, session: Session, strategy_run_ids: list[int]) -> list[Prediction]:
         if not strategy_run_ids:
@@ -587,7 +624,7 @@ class Repository:
     #  Internal: upsert / insert helpers
     # ------------------------------------------------------------------ #
 
-    def _upsert_race(self, session: Session, resp: RaceEntriesResponse) -> Race:
+    def _upsert_race(self, session: Session, resp: RaceEntriesResponse, *, update_metadata: bool) -> Race:
         existing = session.execute(
             select(Race).where(
                 Race.track_id == resp.track.value,
@@ -597,14 +634,23 @@ class Repository:
         ).scalar_one_or_none()
 
         if existing:
-            existing.grade = resp.grade.value
-            existing.title = resp.title
-            existing.distance = resp.distance
-            existing.weather = resp.weather
-            existing.track_condition = resp.track_condition.value if resp.track_condition else None
-            existing.temperature = resp.temperature
-            existing.humidity = resp.humidity
-            existing.track_temperature = resp.track_temperature
+            if update_metadata:
+                if resp.grade and (resp.grade.value != "普通" or not existing.grade):
+                    existing.grade = resp.grade.value
+                if resp.title:
+                    existing.title = resp.title
+                if resp.distance and (resp.distance != 3100 or not existing.distance):
+                    existing.distance = resp.distance
+                if resp.weather:
+                    existing.weather = resp.weather
+                if resp.track_condition:
+                    existing.track_condition = resp.track_condition.value
+                if resp.temperature is not None:
+                    existing.temperature = resp.temperature
+                if resp.humidity is not None:
+                    existing.humidity = resp.humidity
+                if resp.track_temperature is not None:
+                    existing.track_temperature = resp.track_temperature
             return existing
 
         race = Race(
@@ -724,10 +770,14 @@ class Repository:
             if existing:
                 existing.rider_id = rider.id
                 existing.handicap_meters = entry.handicap_meters
-                existing.trial_time = entry.trial_time
-                existing.avg_trial_time = entry.avg_trial_time
-                existing.trial_deviation = entry.trial_deviation
-                existing.race_score = entry.race_score
+                if entry.trial_time is not None:
+                    existing.trial_time = entry.trial_time
+                if entry.avg_trial_time is not None:
+                    existing.avg_trial_time = entry.avg_trial_time
+                if entry.trial_deviation is not None:
+                    existing.trial_deviation = entry.trial_deviation
+                if entry.race_score is not None:
+                    existing.race_score = entry.race_score
             else:
                 race_entry = RaceEntry(
                     race_id=race.id,

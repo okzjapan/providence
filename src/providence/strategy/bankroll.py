@@ -1,43 +1,74 @@
-"""Bankroll and rounding utilities."""
+"""Stake normalization: convert Kelly weights to JPY amounts."""
 
 from __future__ import annotations
 
 from providence.strategy.types import RecommendedBet, StrategyConfig
 
 
-def race_budget(bankroll: float, config: StrategyConfig) -> float:
-    return max(bankroll * config.race_cap_fraction, 0.0)
-
-
-def round_recommended_bets(
+def normalize_to_stakes(
     recommendations: list[RecommendedBet],
     *,
-    bankroll: float,
     config: StrategyConfig,
 ) -> list[RecommendedBet]:
+    """Normalize weights so the smallest qualifying bet equals ``min_bet_amount``.
+
+    Steps:
+    1. Filter out weights below ``min_weight_threshold`` (safety valve against
+       a tiny weight inflating total stake).
+    2. Scale so that the smallest surviving weight maps to ``min_bet_amount``
+       (default 100 JPY), then round each bet down to the nearest
+       ``min_bet_amount``.
+    3. If ``max_total_stake`` is set and the total exceeds it, re-scale all
+       bets proportionally and re-round.
+    """
     if not recommendations:
         return []
 
-    budget = race_budget(bankroll, config)
-    rounded: list[RecommendedBet] = []
-    spent = 0.0
-    for recommendation in sorted(recommendations, key=lambda item: item.kelly_fraction, reverse=True):
-        raw_bet = min(recommendation.recommended_bet, max(budget - spent, 0.0))
-        rounded_bet = int(raw_bet // config.min_bet_amount) * config.min_bet_amount
+    eligible = [r for r in recommendations if r.stake_weight >= config.min_weight_threshold]
+    if not eligible:
+        return []
+
+    min_weight = min(r.stake_weight for r in eligible)
+    if min_weight <= 0:
+        return []
+
+    scale = config.min_bet_amount / min_weight
+    rounded = _round_bets(eligible, scale, config)
+    if not rounded:
+        return []
+
+    total = sum(r.recommended_bet for r in rounded)
+    if config.max_total_stake > 0 and total > config.max_total_stake:
+        shrink = config.max_total_stake / total
+        scale *= shrink
+        rounded = _round_bets(eligible, scale, config)
+
+    return rounded
+
+
+def _round_bets(
+    eligible: list[RecommendedBet],
+    scale: float,
+    config: StrategyConfig,
+) -> list[RecommendedBet]:
+    result: list[RecommendedBet] = []
+    for rec in sorted(eligible, key=lambda r: r.stake_weight, reverse=True):
+        raw = rec.stake_weight * scale
+        rounded_bet = int(raw // config.min_bet_amount) * config.min_bet_amount
         if rounded_bet < config.min_bet_amount:
             continue
-        spent += rounded_bet
-        rounded.append(
+        result.append(
             RecommendedBet(
-                ticket_type=recommendation.ticket_type,
-                combination=recommendation.combination,
-                probability=recommendation.probability,
-                odds_value=recommendation.odds_value,
-                expected_value=recommendation.expected_value,
-                confidence_score=recommendation.confidence_score,
-                kelly_fraction=recommendation.kelly_fraction,
+                ticket_type=rec.ticket_type,
+                combination=rec.combination,
+                probability=rec.probability,
+                odds_value=rec.odds_value,
+                expected_value=rec.expected_value,
+                confidence_score=rec.confidence_score,
+                kelly_fraction=rec.kelly_fraction,
                 recommended_bet=float(rounded_bet),
-                skip_reason=recommendation.skip_reason,
+                stake_weight=rec.stake_weight,
+                skip_reason=rec.skip_reason,
             )
         )
-    return rounded
+    return result

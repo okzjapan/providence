@@ -17,6 +17,8 @@ def build_candidates(
     candidates: list[TicketCandidate] = []
 
     for predicted in predicted_probs:
+        if config.allowed_ticket_types is not None and predicted.ticket_type not in config.allowed_ticket_types:
+            continue
         odds = odds_lookup.get((predicted.ticket_type, predicted.combination))
         if odds is None:
             continue

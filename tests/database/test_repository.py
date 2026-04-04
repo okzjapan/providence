@@ -153,6 +153,31 @@ class TestSaveRaceData:
             assert rows[0].trial_time == pytest.approx(3.31)
             assert rows[-1].trial_time == pytest.approx(3.38)
 
+    def test_second_save_does_not_clear_existing_trial_times_with_null(self, session_factory):
+        repo = Repository()
+        with session_factory() as session:
+            repo.ensure_tracks(session)
+
+        entries_resp = _sample_entries_response().model_copy(
+            update={
+                "entries": [
+                    entry.model_copy(update={"trial_time": 3.30 + idx * 0.01})
+                    for idx, entry in enumerate(_sample_entries_response().entries, start=1)
+                ]
+            }
+        )
+        null_entries = _sample_entries_response()
+
+        with session_factory() as session:
+            repo.save_race_data(session, entries_resp, None)
+        with session_factory() as session:
+            repo.save_race_data(session, null_entries, None)
+
+        with session_factory() as session:
+            rows = session.query(RaceEntry).order_by(RaceEntry.post_position).all()
+            assert rows[0].trial_time == pytest.approx(3.31)
+            assert rows[-1].trial_time == pytest.approx(3.38)
+
     def test_refund_to_ticket_payout_conversion(self, session_factory):
         repo = Repository()
         with session_factory() as session:

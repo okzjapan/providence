@@ -59,7 +59,6 @@ def test_walk_forward_skips_dates_without_eligible_model(monkeypatch):
         start_date=date(2025, 1, 1),
         end_date=date(2025, 1, 1),
         judgment_clock=time(10, 0),
-        bankroll=10_000,
         evaluation_mode=EvaluationMode.WALK_FORWARD,
     )
     assert results == []

@@ -149,24 +149,53 @@ class TicketPayout(Base):
     race: Mapped[Race] = relationship(back_populates="payouts")
 
 
+class SimulationRun(Base):
+    __tablename__ = "simulation_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    semantic_key: Mapped[str] = mapped_column(String, nullable=False)
+    model_version: Mapped[str] = mapped_column(String, nullable=False)
+    evaluation_mode: Mapped[str] = mapped_column(String, nullable=False)
+    odds_policy: Mapped[str] = mapped_column(String, nullable=False, default="final_closed")
+    stake_sizing_rule: Mapped[str] = mapped_column(String, nullable=False, default="min_100_normalized")
+    date_range_start: Mapped[date] = mapped_column(Date, nullable=False)
+    date_range_end: Mapped[date] = mapped_column(Date, nullable=False)
+    total_races: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    evaluated_races: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    odds_missing_races: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payout_missing_races: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_stake: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_payout: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_profit: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    roi: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    hit_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="completed")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    strategy_runs: Mapped[list["StrategyRun"]] = relationship(back_populates="simulation_run")
+
+
 class StrategyRun(Base):
     __tablename__ = "strategy_runs"
     __table_args__ = (Index("ix_strategy_run_race_judgment", "race_id", "judgment_time"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     race_id: Mapped[int] = mapped_column(Integer, ForeignKey("races.id"), nullable=False)
+    simulation_run_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("simulation_runs.id"), nullable=True)
     model_version: Mapped[str] = mapped_column(String, nullable=False)
     evaluation_mode: Mapped[str] = mapped_column(String, nullable=False, default="live")
     judgment_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     bankroll_before: Mapped[float | None] = mapped_column(Float, nullable=True)
     bankroll_after: Mapped[float | None] = mapped_column(Float, nullable=True)
     race_cap_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stake_sizing_rule: Mapped[str | None] = mapped_column(String, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     total_recommended_bet: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     race: Mapped[Race] = relationship(back_populates="strategy_runs")
+    simulation_run: Mapped["SimulationRun | None"] = relationship(back_populates="strategy_runs")
     predictions: Mapped[list["Prediction"]] = relationship(back_populates="strategy_run")
 
 
@@ -184,6 +213,7 @@ class Prediction(Base):
     odds_at_prediction: Mapped[float | None] = mapped_column(Float, nullable=True)
     expected_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     kelly_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stake_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     recommended_bet: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -32,7 +32,8 @@ def get_engine(settings: Settings | None = None) -> Engine:
         pool_pre_ping=True,
     )
 
-    event.listen(_engine, "connect", _enable_sqlite_fk)
+    if _engine.dialect.name == "sqlite":
+        event.listen(_engine, "connect", _enable_sqlite_fk)
 
     return _engine
 

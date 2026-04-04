@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from providence.strategy.bankroll import round_recommended_bets
+from providence.strategy.bankroll import normalize_to_stakes
 from providence.strategy.candidates import build_candidates
 from providence.strategy.confidence import race_confidence
 from providence.strategy.kelly import optimize_kelly_fractions
@@ -22,7 +22,6 @@ def run_strategy(
     market_odds: list[MarketTicketOdds],
     *,
     decision_context: DecisionContext,
-    bankroll: float,
     config: StrategyConfig | None = None,
 ) -> StrategyRunResult:
     config = config or StrategyConfig()
@@ -34,8 +33,6 @@ def run_strategy(
             decision_context=decision_context,
             confidence_score=confidence_score,
             skip_reason="no_market_odds",
-            bankroll_before=bankroll,
-            bankroll_after=bankroll,
         )
     if confidence_score < config.min_confidence:
         return StrategyRunResult(
@@ -44,8 +41,6 @@ def run_strategy(
             decision_context=decision_context,
             confidence_score=confidence_score,
             skip_reason="low_confidence",
-            bankroll_before=bankroll,
-            bankroll_after=bankroll,
         )
 
     predicted = flatten_ticket_probs(bundle.ticket_probs, bundle.index_map)
@@ -57,14 +52,11 @@ def run_strategy(
             decision_context=decision_context,
             confidence_score=confidence_score,
             skip_reason="no_positive_ev_candidates",
-            bankroll_before=bankroll,
-            bankroll_after=bankroll,
         )
 
     weights = optimize_kelly_fractions(
         candidates=candidates,
         bundle=bundle,
-        race_cap_fraction=config.race_cap_fraction,
     )
     weights *= config.fractional_kelly
 
@@ -77,15 +69,15 @@ def run_strategy(
             expected_value=candidate.expected_value,
             confidence_score=candidate.confidence_score,
             kelly_fraction=float(weight),
-            recommended_bet=float(weight * bankroll),
+            recommended_bet=0.0,
+            stake_weight=float(weight),
         )
         for candidate, weight in zip(candidates, weights, strict=False)
         if weight > 0
     ]
 
-    rounded = round_recommended_bets(recommendations, bankroll=bankroll, config=config)
+    rounded = normalize_to_stakes(recommendations, config=config)
     skip_reason = None if rounded else "rounded_below_minimum"
-    bankroll_after = bankroll - sum(row.recommended_bet for row in rounded)
     return StrategyRunResult(
         race_id=bundle.race_id,
         model_version=bundle.model_version,
@@ -94,6 +86,4 @@ def run_strategy(
         candidate_bets=recommendations,
         recommended_bets=rounded,
         skip_reason=skip_reason,
-        bankroll_before=bankroll,
-        bankroll_after=bankroll_after,
     )

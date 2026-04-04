@@ -27,8 +27,11 @@ providence scrape players                    # 選手マスタ収集
 providence scrape day --date 2026-03-29      # 特定日データ収集
 providence scrape odds --date 2026-03-29 --track 川口 --race 12  # 市場オッズ取得
 providence scrape historical --from 2024-01-01 --to 2024-12-31 --resume  # 過去データ
-providence predict --date 2026-03-29 --track 川口 --race 12 --bankroll 1000000
+providence predict --date 2026-03-29 --track 川口 --race 12
 providence backtest --from 2026-03-01 --to 2026-03-31 --judgment-time 10:00 --evaluation-mode fixed --model-version v003
+providence backtest --from 2026-01-01 --to 2026-03-31 --judgment-time 10:00 --save  # replay を DB 保存
+providence replay list                       # 保存済み replay 一覧
+providence replay detail 1                   # replay #1 のレース別詳細
 providence report
 providence report --refresh
 providence retrain --compare-window-days 28
@@ -113,3 +116,27 @@ uv run providence retrain --compare-window-days 28 --promote
 - `retrain` はデフォルトでは `latest` を更新しない。候補モデルは保存されるが、本番昇格は `--promote` 明示時のみ。
 - `report --refresh` の freshness は `BettingLog` と `ModelPerformance` の更新時刻を基準に表示する。
 - `ModelPerformance` は本番/紙トレード由来の集計のみを保存し、backtest 結果とは混ぜない。
+
+## Phase 6 賭け金正規化と事後評価 replay
+
+### 賭け金正規化
+
+- `bankroll` (資金額) は CLI 引数からもコード内定数からも廃止。
+- 推奨購入金額は Kelly 最適化由来の相対重みを基に、最も小さい推奨額が 100 円になるよう正規化して決まる。
+- 安全弁として `max_total_stake` (デフォルト 10,000 円) を設けている。超過時は全体を比例縮小して再丸めする。
+- 各レースの賭け金は独立に計算される（前レースの損益は次レースに持ち越さない）。
+
+### historical replay
+
+過去レースに対して現行モデルの予測・推奨額・損益を事後評価し、DB に保存する機能。
+
+```bash
+providence backtest --from 2026-01-01 --to 2026-03-31 --judgment-time 10:00 --save
+providence replay list
+providence replay detail <ID>
+```
+
+- replay はレースの**最終オッズ**を使った事後評価であり、実運用の pre-race オッズとは異なる。
+- 保存時に `BettingLog` まで即時確定するため、live 向け `reconcile` で二重計上されない。
+- `simulation_runs` テーブルに ROI 等の集計を保存し、`model_performance` とは独立。
+- 同一条件の再実行は `semantic_key` で識別可能。append-only なので過去結果は消えない。

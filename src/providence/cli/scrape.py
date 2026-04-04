@@ -253,6 +253,7 @@ async def _scrape_odds(date_str: str, track_name: str, race_no: int | None) -> N
                     session,
                     race.id,
                     odds.odds,
+                    captured_at=datetime.combine(race_date, datetime.min.time()),
                     source_name="autorace_jp",
                 )
 

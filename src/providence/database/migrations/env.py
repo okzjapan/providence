@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -11,6 +12,10 @@ config = context.config
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+db_url = os.environ.get("PROVIDENCE_DB_URL")
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
 
 from providence.database.tables import Base  # noqa: E402
 

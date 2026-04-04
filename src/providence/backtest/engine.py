@@ -13,7 +13,7 @@ from providence.features.loader import DataLoader
 from providence.features.pipeline import FeaturePipeline
 from providence.model.predictor import Predictor
 from providence.model.store import ModelStore
-from providence.strategy.normalize import market_odds_from_rows, payouts_from_rows
+from providence.strategy.normalize import market_odds_from_payouts, market_odds_from_rows, payouts_from_rows
 from providence.strategy.optimizer import run_strategy
 from providence.strategy.types import DecisionContext, EvaluationMode, StrategyConfig
 
@@ -42,11 +42,11 @@ class BacktestEngine:
         start_date: date,
         end_date: date,
         judgment_clock: time,
-        bankroll: float,
         evaluation_mode: EvaluationMode,
         model_version: str = "latest",
         track_id: int | None = None,
         config: StrategyConfig | None = None,
+        use_final_odds: bool = False,
     ) -> list[BacktestRaceResult]:
         config = config or StrategyConfig()
         feature_dataset = self._load_feature_dataset(end_date=end_date)
@@ -66,11 +66,11 @@ class BacktestEngine:
             .sort(["race_date", "race_number", "race_id"])
         )
         race_meta = {int(row["race_id"]): row for row in race_rows.iter_rows(named=True)}
-        race_dates = [row["race_date"] for row in race_rows.select("race_date").unique(maintain_order=True).iter_rows(named=True)]
+        unique_dates = race_rows.select("race_date").unique(maintain_order=True)
+        race_dates = [row["race_date"] for row in unique_dates.iter_rows(named=True)]
 
         predictors: dict[str, Predictor] = {}
         results: list[BacktestRaceResult] = []
-        current_bankroll = bankroll
 
         for race_date in race_dates:
             version = model_version
@@ -84,7 +84,9 @@ class BacktestEngine:
             if predictor is None:
                 predictor = Predictor(self.model_store, self.pipeline, self.loader, version=version)
                 predictors[version] = predictor
-            day_features = dataset.filter(pl.col("race_date") == race_date).sort(["race_number", "race_id", "post_position"])
+            day_features = dataset.filter(pl.col("race_date") == race_date).sort(
+                ["race_number", "race_id", "post_position"]
+            )
             bundles = predictor.predict_feature_races(day_features)
             race_ids = list(bundles)
             judgment_time = datetime.combine(race_date, judgment_clock)
@@ -105,13 +107,18 @@ class BacktestEngine:
                         provenance="backtest",
                     )
 
-                    market_odds = market_odds_from_rows(market_rows_by_race.get(bundle.race_id, []))
-                    payouts = payouts_from_rows(payout_rows_by_race.get(bundle.race_id, []))
+                    payout_rows = payout_rows_by_race.get(bundle.race_id, [])
+                    payouts = payouts_from_rows(payout_rows)
+                    if use_final_odds:
+                        market_odds = market_odds_from_payouts(payout_rows)
+                    else:
+                        market_odds = market_odds_from_rows(
+                            market_rows_by_race.get(bundle.race_id, [])
+                        )
                     strategy_result = run_strategy(
                         bundle,
                         market_odds,
                         decision_context=decision_context,
-                        bankroll=current_bankroll,
                         config=config,
                     )
                     settled = settle_recommendations(strategy_result.recommended_bets, payouts) if payouts else []
@@ -119,8 +126,6 @@ class BacktestEngine:
                     total_payout = float(sum(item.payout_amount for item in settled))
                     total_profit = float(sum(item.profit for item in settled))
                     profit_evaluated = bool(market_odds and payouts)
-                    if profit_evaluated:
-                        current_bankroll += total_profit
 
                     results.append(
                         BacktestRaceResult(

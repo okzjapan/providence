@@ -1,9 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 
 import polars as pl
+import pytest
 
-from providence.cli.predict import build_prediction_rows, get_missing_trial_positions
-from providence.domain.enums import TicketType
+from providence.cli.predict import _refresh_race_entries, build_prediction_rows, get_missing_trial_positions
+from providence.domain.enums import TicketType, TrackCode
+from providence.scraper.schemas import EntryRow, RaceEntriesResponse
 from providence.strategy.types import DecisionContext, EvaluationMode, RecommendedBet, StrategyRunResult
 
 
@@ -17,6 +19,7 @@ def test_build_prediction_rows_keeps_candidate_rows_for_skipped_strategy():
         confidence_score=0.8,
         kelly_fraction=0.01,
         recommended_bet=0.0,
+        stake_weight=0.01,
     )
     strategy = StrategyRunResult(
         race_id=1,
@@ -46,3 +49,43 @@ def test_get_missing_trial_positions_returns_missing_cars():
     )
 
     assert get_missing_trial_positions(race_df) == [2, 4]
+
+
+@pytest.mark.asyncio
+async def test_refresh_race_entries_returns_warning_on_fetch_failure(monkeypatch):
+    class DummyScraper:
+        def __init__(self, settings):  # noqa: ARG002
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # noqa: ARG002
+            return False
+
+        async def get_race_entries(self, track_code, target_date, race_no):  # noqa: ARG002
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("providence.cli.predict.AutoraceJpScraper", DummyScraper)
+    warning = await _refresh_race_entries(date(2026, 4, 3), TrackCode.SANYO, 7, None, None)  # type: ignore[arg-type]
+    assert "最新 Program の取得に失敗" in warning
+
+
+@pytest.mark.asyncio
+async def test_refresh_race_entries_returns_warning_on_empty_entries(monkeypatch):
+    class DummyScraper:
+        def __init__(self, settings):  # noqa: ARG002
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):  # noqa: ARG002
+            return False
+
+        async def get_race_entries(self, track_code, target_date, race_no):  # noqa: ARG002
+            return RaceEntriesResponse(track=track_code, race_date=target_date, race_number=race_no, entries=[])
+
+    monkeypatch.setattr("providence.cli.predict.AutoraceJpScraper", DummyScraper)
+    warning = await _refresh_race_entries(date(2026, 4, 3), TrackCode.SANYO, 7, None, None)  # type: ignore[arg-type]
+    assert "最新 Program に出走情報が無い" in warning

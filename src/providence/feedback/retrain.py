@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import lightgbm as lgb
@@ -12,7 +12,6 @@ import sklearn
 
 from providence.backtest.engine import BacktestEngine
 from providence.backtest.metrics import summarize_backtest
-from providence.config import DEFAULT_BANKROLL_JPY
 from providence.features.loader import DataLoader
 from providence.features.pipeline import FeaturePipeline
 from providence.model.evaluator import Evaluator
@@ -160,7 +159,6 @@ def _compare_recent_backtests(
             start_date=start_date,
             end_date=end_date,
             judgment_clock=datetime.now(UTC).time().replace(hour=10, minute=0, second=0, microsecond=0),
-            bankroll=DEFAULT_BANKROLL_JPY,
             evaluation_mode=EvaluationMode.FIXED,
             model_version=candidate_version,
         )
@@ -170,7 +168,6 @@ def _compare_recent_backtests(
             start_date=start_date,
             end_date=end_date,
             judgment_clock=datetime.now(UTC).time().replace(hour=10, minute=0, second=0, microsecond=0),
-            bankroll=DEFAULT_BANKROLL_JPY,
             evaluation_mode=EvaluationMode.FIXED,
             model_version=baseline_version,
         )

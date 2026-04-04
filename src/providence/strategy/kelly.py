@@ -47,15 +47,21 @@ def optimize_kelly_fractions(
     *,
     candidates: list[TicketCandidate],
     bundle: RacePredictionBundle,
-    race_cap_fraction: float,
+    weight_cap: float = 1.0,
     max_iter: int = 200,
 ) -> np.ndarray:
+    """Optimize relative Kelly weights for candidates.
+
+    The returned weights are relative proportions (not fractions of a bankroll).
+    ``weight_cap`` bounds the sum so the optimizer converges; callers normalise
+    the weights into JPY amounts via :func:`normalize_to_stakes`.
+    """
     if not candidates:
         return np.zeros(0, dtype=float)
 
     scenarios = enumerate_top3_scenarios(bundle)
     probs, returns = scenario_return_matrix(candidates, scenarios)
-    weights = _initial_weights(candidates, race_cap_fraction)
+    weights = _initial_weights(candidates, weight_cap)
 
     for step_idx in range(max_iter):
         wealth = 1.0 + returns @ weights
@@ -68,8 +74,8 @@ def optimize_kelly_fractions(
         proposal = weights + step * gradient
         proposal = np.maximum(proposal, 0.0)
         total = proposal.sum()
-        if total > race_cap_fraction and total > 0:
-            proposal *= race_cap_fraction / total
+        if total > weight_cap and total > 0:
+            proposal *= weight_cap / total
 
         if np.allclose(proposal, weights, atol=1e-8):
             break
@@ -78,14 +84,14 @@ def optimize_kelly_fractions(
     return weights
 
 
-def _initial_weights(candidates: list[TicketCandidate], race_cap_fraction: float) -> np.ndarray:
+def _initial_weights(candidates: list[TicketCandidate], weight_cap: float) -> np.ndarray:
     weights = np.asarray([_single_ticket_kelly(c.probability, c.odds_value) for c in candidates], dtype=float)
     weights = np.maximum(weights, 0.0)
     total = weights.sum()
     if total <= 0:
         return np.zeros(len(candidates), dtype=float)
-    if total > race_cap_fraction:
-        weights *= race_cap_fraction / total
+    if total > weight_cap:
+        weights *= weight_cap / total
     return weights
 
 

@@ -86,6 +86,7 @@ class RecommendedBet:
     confidence_score: float
     kelly_fraction: float
     recommended_bet: float
+    stake_weight: float = 0.0
     skip_reason: str | None = None
 
 
@@ -103,13 +104,14 @@ class RacePredictionBundle:
 @dataclass(frozen=True)
 class StrategyConfig:
     fractional_kelly: float = 0.25
-    race_cap_fraction: float = 0.05
-    daily_loss_limit_fraction: float = 0.10
     min_bet_amount: int = 100
+    max_total_stake: int = 10_000
+    min_weight_threshold: float = 0.01
     min_expected_value: float = 0.0
     min_probability: float = 0.0
     max_candidates: int = 12
     min_confidence: float = 0.1
+    allowed_ticket_types: frozenset[TicketType] | None = None
 
 
 @dataclass

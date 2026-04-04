@@ -47,8 +47,11 @@ def format_combination(ticket_type: TicketType, combination: tuple[int, ...]) ->
     return "-".join(str(value) for value in values)
 
 
-def parse_combination(ticket_type: TicketType, combination: str) -> tuple[int, ...]:
-    values = tuple(int(part) for part in combination.split("-"))
+def parse_combination(ticket_type: TicketType, combination: str) -> tuple[int, ...] | None:
+    try:
+        values = tuple(int(part) for part in combination.split("-"))
+    except (ValueError, AttributeError):
+        return None
     return values if is_ordered_ticket_type(ticket_type) else tuple(sorted(values))
 
 
@@ -74,10 +77,13 @@ def market_odds_from_rows(rows: list[OddsSnapshot]) -> list[MarketTicketOdds]:
         if row.ingestion_batch_id is None:
             continue
         ticket_type = TicketType(row.ticket_type)
+        combination = parse_combination(ticket_type, row.combination)
+        if combination is None:
+            continue
         market_odds.append(
             MarketTicketOdds(
                 ticket_type=ticket_type,
-                combination=parse_combination(ticket_type, row.combination),
+                combination=combination,
                 odds_value=float(row.odds_value),
                 captured_at=_as_utc(row.captured_at),
                 ingestion_batch_id=row.ingestion_batch_id,
@@ -87,14 +93,38 @@ def market_odds_from_rows(rows: list[OddsSnapshot]) -> list[MarketTicketOdds]:
     return market_odds
 
 
+def market_odds_from_payouts(rows: list[TicketPayout]) -> list[MarketTicketOdds]:
+    """Derive market odds from settled payout values (for post-hoc replay)."""
+    odds: list[MarketTicketOdds] = []
+    for row in rows:
+        ticket_type = TicketType(row.ticket_type)
+        combination = parse_combination(ticket_type, row.combination)
+        if combination is None:
+            continue
+        odds.append(
+            MarketTicketOdds(
+                ticket_type=ticket_type,
+                combination=combination,
+                odds_value=float(row.payout_value),
+                captured_at=_as_utc(row.settled_at),
+                ingestion_batch_id="payout-derived",
+                source_name="ticket_payouts",
+            )
+        )
+    return odds
+
+
 def payouts_from_rows(rows: list[TicketPayout]) -> list[SettledTicketPayout]:
     payouts: list[SettledTicketPayout] = []
     for row in rows:
         ticket_type = TicketType(row.ticket_type)
+        combination = parse_combination(ticket_type, row.combination)
+        if combination is None:
+            continue
         payouts.append(
             SettledTicketPayout(
                 ticket_type=ticket_type,
-                combination=parse_combination(ticket_type, row.combination),
+                combination=combination,
                 payout_value=float(row.payout_value),
                 settled_at=_as_utc(row.settled_at),
             )
