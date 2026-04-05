@@ -18,6 +18,7 @@ if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
 
 from providence.database.tables import Base  # noqa: E402
+import providence.keiba.database.tables  # noqa: E402, F401  -- register keiba tables
 
 target_metadata = Base.metadata
 

@@ -1,10 +1,29 @@
 """Shared test fixtures."""
 
+import io
+
 import pytest
+import structlog
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from providence.database.tables import Base
+import providence.keiba.database.tables  # noqa: F401  -- register keiba tables with Base.metadata
+
+@pytest.fixture(autouse=True)
+def _reset_structlog():
+    """Ensure structlog writes to a safe target after each test.
+
+    CLI tests invoke _configure_logging() which binds structlog to stderr.
+    CliRunner may close stderr, leaving cached loggers with a dead file handle.
+    """
+    yield
+    structlog.configure(
+        processors=[structlog.dev.ConsoleRenderer()],
+        wrapper_class=structlog.make_filtering_bound_logger(40),
+        logger_factory=structlog.PrintLoggerFactory(file=io.StringIO()),
+        cache_logger_on_first_use=False,
+    )
 
 
 def _enable_sqlite_fk(dbapi_conn, connection_record):  # noqa: ARG001
