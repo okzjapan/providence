@@ -35,6 +35,8 @@ def backtest_command(
     ticket_types: str | None = typer.Option(None, "--ticket-types", help="Comma-separated ticket types to bet on (e.g. win,wide)"),
     max_candidates: int | None = typer.Option(None, "--max-candidates", help="Max candidate bets per race"),
     fractional_kelly: float | None = typer.Option(None, "--fractional-kelly", help="Kelly fraction multiplier (default 0.25)"),
+    min_confidence: float | None = typer.Option(None, "--min-confidence", help="Minimum race confidence score"),
+    min_expected_value: float | None = typer.Option(None, "--min-expected-value", help="Minimum expected value threshold"),
 ) -> None:
     mode = EvaluationMode.FIXED if evaluation_mode == "fixed" else EvaluationMode.WALK_FORWARD
     track_code = TrackCode.from_name(track) if track else None
@@ -42,6 +44,8 @@ def backtest_command(
         ticket_types=ticket_types,
         max_candidates=max_candidates,
         fractional_kelly=fractional_kelly,
+        min_confidence=min_confidence,
+        min_expected_value=min_expected_value,
     )
     engine = BacktestEngine()
     start = date.fromisoformat(from_date)

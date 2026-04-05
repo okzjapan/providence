@@ -44,8 +44,10 @@ from providence.cli.replay import replay_app  # noqa: E402
 from providence.cli.report import report_command  # noqa: E402
 from providence.cli.retrain import retrain_command  # noqa: E402
 from providence.cli.scrape import scrape_app  # noqa: E402
+from providence.cli.notify import notify_app  # noqa: E402
 from providence.cli.train import train_command  # noqa: E402
 
+app.add_typer(notify_app, name="notify", help="Notification batch commands")
 app.add_typer(scrape_app, name="scrape", help="Data collection commands")
 app.add_typer(db_app, name="db", help="Database management commands")
 app.add_typer(model_app, name="model", help="Model management commands")

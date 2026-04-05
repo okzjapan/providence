@@ -9,4 +9,5 @@ __pycache__/
 *.egg-info/
 .ruff_cache/
 .pytest_cache/
+*.pt
 notebooks/.ipynb_checkpoints/

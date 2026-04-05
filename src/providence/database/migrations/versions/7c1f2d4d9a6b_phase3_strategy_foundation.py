@@ -40,7 +40,7 @@ def upgrade() -> None:
             sa.Column("combination", sa.String(), nullable=False),
             sa.Column("payout_value", sa.Float(), nullable=False),
             sa.Column("popularity", sa.Integer(), nullable=True),
-            sa.Column("settled_at", sa.DateTime(), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
+            sa.Column("settled_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
             sa.ForeignKeyConstraint(["race_id"], ["races.id"]),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("race_id", "ticket_type", "combination", name="uq_ticket_payout_identity"),
@@ -61,7 +61,7 @@ def upgrade() -> None:
             sa.Column("confidence_score", sa.Float(), nullable=True),
             sa.Column("skip_reason", sa.String(), nullable=True),
             sa.Column("total_recommended_bet", sa.Float(), nullable=False, server_default="0"),
-            sa.Column("created_at", sa.DateTime(), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
+            sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
             sa.ForeignKeyConstraint(["race_id"], ["races.id"]),
             sa.PrimaryKeyConstraint("id"),
         )
@@ -69,24 +69,18 @@ def upgrade() -> None:
 
     prediction_columns = {column["name"] for column in inspector.get_columns("predictions")}
     prediction_foreign_keys = {tuple(fk["constrained_columns"]) for fk in inspector.get_foreign_keys("predictions")}
-    needs_prediction_batch = (
-        "strategy_run_id" not in prediction_columns
-        or "skip_reason" not in prediction_columns
-        or ("strategy_run_id",) not in prediction_foreign_keys
-    )
-    if needs_prediction_batch:
-        with op.batch_alter_table("predictions", recreate="always") as batch_op:
-            if "strategy_run_id" not in prediction_columns:
-                batch_op.add_column(sa.Column("strategy_run_id", sa.Integer(), nullable=True))
-            if "skip_reason" not in prediction_columns:
-                batch_op.add_column(sa.Column("skip_reason", sa.String(), nullable=True))
-            if ("strategy_run_id",) not in prediction_foreign_keys:
-                batch_op.create_foreign_key(
-                    "fk_predictions_strategy_run_id",
-                    "strategy_runs",
-                    ["strategy_run_id"],
-                    ["id"],
-                )
+    if "strategy_run_id" not in prediction_columns:
+        op.add_column("predictions", sa.Column("strategy_run_id", sa.Integer(), nullable=True))
+    if "skip_reason" not in prediction_columns:
+        op.add_column("predictions", sa.Column("skip_reason", sa.String(), nullable=True))
+    if ("strategy_run_id",) not in prediction_foreign_keys:
+        op.create_foreign_key(
+            "fk_predictions_strategy_run_id",
+            "predictions",
+            "strategy_runs",
+            ["strategy_run_id"],
+            ["id"],
+        )
 
 
 def downgrade() -> None:
@@ -97,14 +91,12 @@ def downgrade() -> None:
     if "predictions" in inspector.get_table_names():
         prediction_columns = {column["name"] for column in inspector.get_columns("predictions")}
         prediction_foreign_keys = {tuple(fk["constrained_columns"]) for fk in inspector.get_foreign_keys("predictions")}
-        if "strategy_run_id" in prediction_columns or "skip_reason" in prediction_columns:
-            with op.batch_alter_table("predictions", recreate="always") as batch_op:
-                if ("strategy_run_id",) in prediction_foreign_keys:
-                    batch_op.drop_constraint("fk_predictions_strategy_run_id", type_="foreignkey")
-                if "skip_reason" in prediction_columns:
-                    batch_op.drop_column("skip_reason")
-                if "strategy_run_id" in prediction_columns:
-                    batch_op.drop_column("strategy_run_id")
+        if ("strategy_run_id",) in prediction_foreign_keys:
+            op.drop_constraint("fk_predictions_strategy_run_id", "predictions", type_="foreignkey")
+        if "skip_reason" in prediction_columns:
+            op.drop_column("predictions", "skip_reason")
+        if "strategy_run_id" in prediction_columns:
+            op.drop_column("predictions", "strategy_run_id")
 
     if "strategy_runs" in inspector.get_table_names():
         strategy_indexes = {index["name"] for index in inspector.get_indexes("strategy_runs")}

@@ -29,7 +29,7 @@ def upgrade() -> None:
             sa.Column("evaluation_date", sa.Date(), nullable=True),
             sa.Column("status", sa.String(), nullable=False),
             sa.Column("details", sa.String(), nullable=True),
-            sa.Column("executed_at", sa.DateTime(), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
+            sa.Column("executed_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
             sa.PrimaryKeyConstraint("id"),
         )
         op.create_index("ix_feedback_runs_job_executed", "feedback_runs", ["job_name", "executed_at"], unique=False)

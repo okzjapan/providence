@@ -49,6 +49,8 @@ def build_strategy_config(
     ticket_types: str | None = None,
     max_candidates: int | None = None,
     fractional_kelly: float | None = None,
+    min_confidence: float | None = None,
+    min_expected_value: float | None = None,
 ) -> StrategyConfig:
     """Build a ``StrategyConfig`` from optional CLI overrides.
 
@@ -61,4 +63,8 @@ def build_strategy_config(
         overrides["max_candidates"] = max_candidates
     if fractional_kelly is not None:
         overrides["fractional_kelly"] = fractional_kelly
+    if min_confidence is not None:
+        overrides["min_confidence"] = min_confidence
+    if min_expected_value is not None:
+        overrides["min_expected_value"] = min_expected_value
     return StrategyConfig(**overrides)  # type: ignore[arg-type]

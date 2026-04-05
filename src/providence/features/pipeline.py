@@ -31,7 +31,6 @@ class FeaturePipeline:
         "rider_id",
         "rider_registration_number",
         "race_date",
-        "race_number",
         "finish_position",
         "race_time",
         "start_timing",
@@ -109,7 +108,6 @@ class FeaturePipeline:
     def _prepare_base(df: pl.DataFrame) -> pl.DataFrame:
         out = df.sort(["race_date", "race_number", "race_id", "post_position"])
 
-        # Normalize rare weather values before integer coding.
         weather_counts = (
             out.group_by("weather")
             .agg(pl.len().alias("n"))
@@ -121,6 +119,16 @@ class FeaturePipeline:
             out = out.join(weather_counts, on="weather", how="left").with_columns(
                 pl.coalesce(["mapped", "weather"]).alias("weather")
             ).drop("mapped")
+
+        if "home_track_id" in out.columns and "track_id" in out.columns:
+            out = out.with_columns(
+                (pl.col("home_track_id") == pl.col("track_id")).cast(pl.Int8).alias("is_home_track"),
+            )
+
+        if "birth_year" in out.columns and "race_date" in out.columns:
+            out = out.with_columns(
+                (pl.col("race_date").dt.year() - pl.col("birth_year")).alias("rider_age"),
+            )
 
         return out
 

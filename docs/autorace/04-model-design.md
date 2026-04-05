@@ -12,11 +12,29 @@
 
 LambdaRank は同一レース内での相対評価を最適化するため、メンバーレベルが異なるレース間でも適切に学習できる。
 
-### 1.2 Optuna によるハイパーパラメータ最適化
+### 1.2 4モデルアンサンブル
+
+`--ensemble` フラグで4モデルを同時学習し、重み付き幾何平均で統合する。
+
+| モデル | 目的関数 | ラベル | 役割 |
+|--------|---------|--------|------|
+| LambdaRank | `lambdarank` | `field_size - position` | 相対的ランキング品質 |
+| Binary top-2 | `binary` | `position <= 2 ? 1 : 0` | 2連系・ワイドの精度 |
+| Binary win | `binary` | `position == 1 ? 1 : 0` | 単勝精度 |
+| Huber 回帰 | `huber` | `{1:8, 2:4, 3:2, 4:1, else:0}` | 外れ値にロバストな着順予測 |
+
+**統合フロー** (`src/providence/model/ensemble.py`):
+1. 各モデルの出力をレース内 softmax → 勝率分布に変換
+2. 重み付き幾何平均: `p_combined[i] ∝ Π p_k[i]^w_k`
+3. 正規化 → `log(p_combined)` を PL 層に `temperature=1.0` で渡す
+
+**既定の重み**: ランク=0.40, 2着以内=0.30, 1着=0.15, Huber=0.15
+
+### 1.3 Optuna によるハイパーパラメータ最適化
 
 `src/providence/model/trainer.py` で Optuna を使ったチューニングが可能。
 
-### 1.3 セグメント分割
+### 1.4 セグメント分割
 
 現在のオートレースはセグメント分割なし（全レースを単一モデルで学習）。出走数が最大 8 車と少なく、芝/ダートのような根本的な分離が不要なため。
 
@@ -104,9 +122,12 @@ strengths = exp((score - max_score) / temperature)
 `src/providence/model/store.py`
 
 - モデルは `data/models/<version>/` に保存
-- 各バージョンに `model.txt`（LightGBM モデル）と `metadata.json`（特徴量リスト、temperature 等）を格納
-- `latest` シンボリックリンクで最新バージョンを管理
+- 単一モデル: `model.txt` + `metadata.json`
+- アンサンブル: `lambdarank.txt`, `binary_top2.txt`, `binary_win.txt`, `huber.txt` + `ensemble_weights.json` + `metadata.json`
+- `metadata.json` に `model_type` フィールド（`"lambdarank"` or `"ensemble"`）で判別
+- `latest` ファイルで最新バージョンを管理
 - `load_for_backtest` でバックテスト用の過去バージョンをロード可能
+- `Predictor` が `model_type` を検出し、単一/アンサンブルを透過的に切り替え
 
 ---
 

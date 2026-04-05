@@ -64,6 +64,10 @@ class Race(Base):
     humidity: Mapped[float | None] = mapped_column(Float, nullable=True)
     track_temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="正常")
+    scheduled_start_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    telvote_close_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    schedule_source: Mapped[str | None] = mapped_column(String, nullable=True)
+    schedule_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     track: Mapped[Track] = relationship(back_populates="races")
     entries: Mapped[list["RaceEntry"]] = relationship(back_populates="race", cascade="all, delete-orphan")

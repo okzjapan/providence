@@ -16,7 +16,7 @@ from providence.config import get_settings
 from providence.database.engine import get_session_factory
 from providence.database.repository import Repository
 from providence.domain.enums import TrackCode
-from providence.scraper.autorace_jp import AutoraceJpScraper
+from providence.scraper.autorace_jp import AutoraceJpScraper, situation_code_label
 from providence.scraper.oddspark import OddsparkScraper
 
 scrape_app = typer.Typer()
@@ -77,7 +77,7 @@ async def _scrape_today() -> None:
             item.get("raceStartTime", ""),
             item.get("telvoteTime", ""),
             item.get("weather", ""),
-            "",
+            situation_code_label(item.get("situationCode")),
             f"{item.get('temp', '')}℃",
         )
 
@@ -224,6 +224,7 @@ async def _scrape_odds(date_str: str, track_name: str, race_no: int | None) -> N
     errors = 0
     start = time.monotonic()
 
+    conditions_updated = 0
     async with AutoraceJpScraper(settings) as scraper:
         for target_race in target_races:
             try:
@@ -257,8 +258,24 @@ async def _scrape_odds(date_str: str, track_name: str, race_no: int | None) -> N
                     source_name="autorace_jp",
                 )
 
+        if race_no is not None:
+            try:
+                conditions = await scraper.get_live_conditions(track)
+                if conditions and any(v is not None for v in conditions.values()):
+                    with session_factory() as session:
+                        conditions_updated = repo.update_race_conditions(
+                            session, track.value, race_date, conditions,
+                            force=True, race_number=race_no,
+                        )
+            except Exception as exc:
+                structlog.get_logger().debug(
+                    "live_conditions_update_skip", track=track.name, error=str(exc),
+                )
+
     elapsed = time.monotonic() - start
     console.print(f"[green]Saved {saved} odds rows with {errors} errors in {elapsed:.1f}s[/green]")
+    if conditions_updated:
+        console.print(f"[green]Updated conditions for R{race_no}.[/green]")
     with session_factory() as session:
         repo.log_scrape(
             session,

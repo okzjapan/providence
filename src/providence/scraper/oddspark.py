@@ -6,7 +6,8 @@ HTML tables are parsed with BeautifulSoup + lxml.
 
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import date, time
 
 from bs4 import BeautifulSoup, Tag
 
@@ -174,6 +175,33 @@ class OddsparkScraper(BaseScraper):
         return _parse_conditions_block(soup)
 
     # ------------------------------------------------------------------ #
+    #  Race Start Times
+    # ------------------------------------------------------------------ #
+
+    async def get_race_start_time(
+        self, track: TrackCode, race_date: date, race_no: int
+    ) -> time | None:
+        """Extract scheduled start time from RaceList.do page."""
+        soup = await self._get_soup(
+            "RaceList.do",
+            raceDy=self._date_str(race_date),
+            placeCd=self._place_code(track),
+            raceNo=race_no,
+        )
+        return _parse_start_time(soup)
+
+    async def get_all_race_start_times(
+        self, track: TrackCode, race_date: date
+    ) -> dict[int, time]:
+        """Return {race_number: start_time} for all races at a track on a date."""
+        result: dict[int, time] = {}
+        for race_no in range(1, 13):
+            t = await self.get_race_start_time(track, race_date, race_no)
+            if t is not None:
+                result[race_no] = t
+        return result
+
+    # ------------------------------------------------------------------ #
     #  Daily Refunds
     # ------------------------------------------------------------------ #
 
@@ -212,6 +240,16 @@ class OddsparkScraper(BaseScraper):
 # ------------------------------------------------------------------ #
 #  HTML Parsing helpers
 # ------------------------------------------------------------------ #
+
+_START_TIME_RE = re.compile(r"発走時間\s*(\d{1,2}):(\d{2})")
+
+
+def _parse_start_time(soup: BeautifulSoup) -> time | None:
+    text = soup.get_text()
+    m = _START_TIME_RE.search(text)
+    if not m:
+        return None
+    return time(int(m.group(1)), int(m.group(2)))
 
 
 def _safe_float(text: str | None) -> float | None:

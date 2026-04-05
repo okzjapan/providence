@@ -28,6 +28,7 @@ def _add_rider_track_group_features(group: pl.DataFrame) -> pl.DataFrame:
 
     rider_track_win_rate: list[float | None] = []
     rider_wet_win_rate: list[float | None] = []
+    rider_wet_top3_rate: list[float | None] = []
 
     race_dates = group["race_date"].to_list()
     history: list[tuple[date, int, str | None, int]] = []
@@ -42,6 +43,8 @@ def _add_rider_track_group_features(group: pl.DataFrame) -> pl.DataFrame:
         wet_starts = len(wet_history)
         wet_wins = sum(1 for p in wet_history if p == 1)
         rider_wet_win_rate.append((wet_wins / wet_starts) if wet_starts >= 5 else None)
+        wet_top3 = sum(1 for p in wet_history if p <= 3)
+        rider_wet_top3_rate.append((wet_top3 / wet_starts) if wet_starts >= 5 else None)
 
         position = finish_positions[idx]
         if position is not None and position >= 1:
@@ -50,4 +53,5 @@ def _add_rider_track_group_features(group: pl.DataFrame) -> pl.DataFrame:
     return group.with_columns(
         pl.Series("rider_track_win_rate", rider_track_win_rate),
         pl.Series("rider_wet_win_rate", rider_wet_win_rate),
+        pl.Series("rider_wet_top3_rate", rider_wet_top3_rate),
     )

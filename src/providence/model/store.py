@@ -39,6 +39,36 @@ class ModelStore:
             (self.base_dir / "latest").write_text(version)
         return version
 
+    def save_ensemble(
+        self,
+        models: dict[str, lgb.Booster],
+        weights: dict[str, float],
+        metadata: dict,
+        version: str | None = None,
+        *,
+        update_latest: bool = True,
+    ) -> str:
+        version = version or self._next_version()
+        version_dir = self.base_dir / version
+        version_dir.mkdir(parents=True, exist_ok=True)
+
+        for key, model in models.items():
+            model.save_model(str(version_dir / f"{key}.txt"))
+
+        (version_dir / "ensemble_weights.json").write_text(json.dumps(weights, indent=2))
+        metadata = {
+            **metadata,
+            "model_type": "ensemble",
+            "ensemble_keys": list(models.keys()),
+            "ensemble_weights": weights,
+            "version": version,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        (version_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+        if update_latest:
+            (self.base_dir / "latest").write_text(version)
+        return version
+
     def save_candidate(self, model: lgb.Booster, metadata: dict, version: str | None = None) -> str:
         return self.save(model, metadata, version=version, update_latest=False)
 
@@ -56,6 +86,24 @@ class ModelStore:
         model = lgb.Booster(model_file=str(version_dir / "model.txt"))
         metadata = json.loads((version_dir / "metadata.json").read_text())
         return model, metadata
+
+    def load_ensemble(self, version: str = "latest") -> tuple[dict[str, lgb.Booster], dict[str, float], dict]:
+        actual_version = self._resolve_version(version)
+        version_dir = self.base_dir / actual_version
+        metadata = json.loads((version_dir / "metadata.json").read_text())
+        keys = metadata.get("ensemble_keys", [])
+        models = {key: lgb.Booster(model_file=str(version_dir / f"{key}.txt")) for key in keys}
+        weights = metadata.get("ensemble_weights", {})
+        return models, weights, metadata
+
+    def is_ensemble(self, version: str = "latest") -> bool:
+        actual_version = self._resolve_version(version)
+        version_dir = self.base_dir / actual_version
+        metadata_path = version_dir / "metadata.json"
+        if not metadata_path.exists():
+            return False
+        metadata = json.loads(metadata_path.read_text())
+        return metadata.get("model_type") == "ensemble"
 
     def latest_version(self) -> str:
         latest_file = self.base_dir / "latest"

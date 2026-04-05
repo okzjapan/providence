@@ -44,28 +44,26 @@ def upgrade() -> None:
             sa.Column("roi", sa.Float(), nullable=False, server_default="0"),
             sa.Column("hit_rate", sa.Float(), nullable=False, server_default="0"),
             sa.Column("status", sa.String(), nullable=False, server_default="completed"),
-            sa.Column("created_at", sa.DateTime(), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
+            sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
             sa.PrimaryKeyConstraint("id"),
         )
 
     strategy_columns = {c["name"] for c in inspector.get_columns("strategy_runs")}
-    if "simulation_run_id" not in strategy_columns or "stake_sizing_rule" not in strategy_columns:
-        with op.batch_alter_table("strategy_runs", recreate="always") as batch_op:
-            if "simulation_run_id" not in strategy_columns:
-                batch_op.add_column(sa.Column("simulation_run_id", sa.Integer(), nullable=True))
-                batch_op.create_foreign_key(
-                    "fk_strategy_runs_simulation_run_id",
-                    "simulation_runs",
-                    ["simulation_run_id"],
-                    ["id"],
-                )
-            if "stake_sizing_rule" not in strategy_columns:
-                batch_op.add_column(sa.Column("stake_sizing_rule", sa.String(), nullable=True))
+    if "simulation_run_id" not in strategy_columns:
+        op.add_column("strategy_runs", sa.Column("simulation_run_id", sa.Integer(), nullable=True))
+        op.create_foreign_key(
+            "fk_strategy_runs_simulation_run_id",
+            "strategy_runs",
+            "simulation_runs",
+            ["simulation_run_id"],
+            ["id"],
+        )
+    if "stake_sizing_rule" not in strategy_columns:
+        op.add_column("strategy_runs", sa.Column("stake_sizing_rule", sa.String(), nullable=True))
 
     prediction_columns = {c["name"] for c in inspector.get_columns("predictions")}
     if "stake_weight" not in prediction_columns:
-        with op.batch_alter_table("predictions", recreate="always") as batch_op:
-            batch_op.add_column(sa.Column("stake_weight", sa.Float(), nullable=True))
+        op.add_column("predictions", sa.Column("stake_weight", sa.Float(), nullable=True))
 
 
 def downgrade() -> None:
@@ -74,17 +72,14 @@ def downgrade() -> None:
 
     prediction_columns = {c["name"] for c in inspector.get_columns("predictions")}
     if "stake_weight" in prediction_columns:
-        with op.batch_alter_table("predictions", recreate="always") as batch_op:
-            batch_op.drop_column("stake_weight")
+        op.drop_column("predictions", "stake_weight")
 
     strategy_columns = {c["name"] for c in inspector.get_columns("strategy_runs")}
-    if "simulation_run_id" in strategy_columns or "stake_sizing_rule" in strategy_columns:
-        with op.batch_alter_table("strategy_runs", recreate="always") as batch_op:
-            if "simulation_run_id" in strategy_columns:
-                batch_op.drop_constraint("fk_strategy_runs_simulation_run_id", type_="foreignkey")
-                batch_op.drop_column("simulation_run_id")
-            if "stake_sizing_rule" in strategy_columns:
-                batch_op.drop_column("stake_sizing_rule")
+    if "simulation_run_id" in strategy_columns:
+        op.drop_constraint("fk_strategy_runs_simulation_run_id", "strategy_runs", type_="foreignkey")
+        op.drop_column("strategy_runs", "simulation_run_id")
+    if "stake_sizing_rule" in strategy_columns:
+        op.drop_column("strategy_runs", "stake_sizing_rule")
 
     if "simulation_runs" in inspector.get_table_names():
         op.drop_table("simulation_runs")

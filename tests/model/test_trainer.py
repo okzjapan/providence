@@ -56,13 +56,13 @@ def _raw_df() -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
-def test_train_lambdarank_smoke():
+def _train_and_predict(method_name: str):
     pipeline = FeaturePipeline()
     features = pipeline.build_features(_raw_df())
     train_df = features.filter(pl.col("race_date") < date(2021, 1, 4))
     val_df = features.filter(pl.col("race_date") == date(2021, 1, 4))
     trainer = Trainer(pipeline=pipeline)
-    artifacts = trainer.train_lambdarank(train_df, val_df)
+    artifacts = getattr(trainer, method_name)(train_df, val_df)
     X_val = pd.DataFrame(
         {
             column: (
@@ -74,4 +74,29 @@ def test_train_lambdarank_smoke():
         }
     )
     preds = artifacts.model.predict(X_val)
+    return preds, val_df, artifacts
+
+
+def test_train_lambdarank_smoke():
+    preds, val_df, _ = _train_and_predict("train_lambdarank")
     assert len(preds) == len(val_df)
+
+
+def test_train_binary_top2_smoke():
+    preds, val_df, artifacts = _train_and_predict("train_binary_top2")
+    assert len(preds) == len(val_df)
+    assert artifacts.model_type == "binary_top2"
+    assert all(0.0 <= p <= 1.0 for p in preds)
+
+
+def test_train_binary_win_smoke():
+    preds, val_df, artifacts = _train_and_predict("train_binary_win")
+    assert len(preds) == len(val_df)
+    assert artifacts.model_type == "binary_win"
+    assert all(0.0 <= p <= 1.0 for p in preds)
+
+
+def test_train_huber_smoke():
+    preds, val_df, artifacts = _train_and_predict("train_huber")
+    assert len(preds) == len(val_df)
+    assert artifacts.model_type == "huber"

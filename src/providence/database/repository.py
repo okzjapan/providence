@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import structlog
 from sqlalchemy import desc, func, select, text
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from providence.database.tables import (
@@ -39,6 +38,19 @@ from providence.scraper.schemas import (
 )
 
 logger = structlog.get_logger()
+
+
+def _dialect_insert(session: Session, table):
+    """Return the dialect-specific insert construct for upsert support."""
+    dialect = session.bind.dialect.name if session.bind else "sqlite"
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        return pg_insert(table)
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    return sqlite_insert(table)
+
 
 _TRACK_DATA: dict[int, tuple[str, str]] = {
     TrackCode.KAWAGUCHI: ("川口", "埼玉県川口市"),
@@ -330,7 +342,7 @@ class Repository:
         transaction = session.begin_nested() if session.in_transaction() else session.begin()
         with transaction:
             for row in betting_logs:
-                stmt = sqlite_insert(BettingLog).values(**row)
+                stmt = _dialect_insert(session, BettingLog).values(**row)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["prediction_id"],
                     set_={
@@ -352,7 +364,7 @@ class Repository:
         transaction = session.begin_nested() if session.in_transaction() else session.begin()
         with transaction:
             for row in rows:
-                stmt = sqlite_insert(ModelPerformance).values(**row)
+                stmt = _dialect_insert(session, ModelPerformance).values(**row)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["model_version", "evaluation_date", "window"],
                     set_={
@@ -404,33 +416,45 @@ class Repository:
         track_id: int,
         race_date: date,
         conditions: dict[str, object],
+        *,
+        force: bool = False,
+        race_number: int | None = None,
     ) -> int:
-        """Update weather/track conditions for all races on a given day at a track.
+        """Update weather/track conditions for races on a given day at a track.
+
+        When *force* is False (default), only fill in empty fields — safe for
+        historical backfill where existing post-race values should be preserved.
+
+        When *force* is True, overwrite existing values with the latest data.
+        Use this for live / real-time condition updates.
+
+        When *race_number* is given, only update that single race.
 
         Returns count of races updated.
         """
         with session.begin():
-            races = session.execute(
-                select(Race).where(Race.track_id == track_id, Race.race_date == race_date)
-            ).scalars().all()
+            stmt = select(Race).where(Race.track_id == track_id, Race.race_date == race_date)
+            if race_number is not None:
+                stmt = stmt.where(Race.race_number == race_number)
+            races = session.execute(stmt).scalars().all()
 
             count = 0
             for race in races:
                 updated = False
-                if conditions.get("weather") and not race.weather:
+                if conditions.get("weather") and (force or not race.weather):
                     race.weather = conditions["weather"]
                     updated = True
-                if conditions.get("track_condition") and not race.track_condition:
+                if conditions.get("track_condition") and (force or not race.track_condition):
                     tc = conditions["track_condition"]
                     race.track_condition = tc.value if hasattr(tc, "value") else str(tc)
                     updated = True
-                if conditions.get("temperature") is not None and race.temperature is None:
+                if conditions.get("temperature") is not None and (force or race.temperature is None):
                     race.temperature = float(conditions["temperature"])
                     updated = True
-                if conditions.get("humidity") is not None and race.humidity is None:
+                if conditions.get("humidity") is not None and (force or race.humidity is None):
                     race.humidity = float(conditions["humidity"])
                     updated = True
-                if conditions.get("track_temperature") is not None and race.track_temperature is None:
+                if conditions.get("track_temperature") is not None and (force or race.track_temperature is None):
                     race.track_temperature = float(conditions["track_temperature"])
                     updated = True
                 if updated:
@@ -446,7 +470,7 @@ class Repository:
         """Insert track master data if not present."""
         with session.begin():
             for track_id, (name, location) in _TRACK_DATA.items():
-                stmt = sqlite_insert(Track).values(id=track_id, name=name, location=location)
+                stmt = _dialect_insert(session, Track).values(id=track_id, name=name, location=location)
                 stmt = stmt.on_conflict_do_nothing(index_elements=["id"])
                 session.execute(stmt)
 

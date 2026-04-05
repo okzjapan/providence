@@ -52,6 +52,20 @@ _REFUND_KEYS: list[tuple[str, TicketType]] = [
     ("rf3", TicketType.TRIO),
 ]
 
+# From autorace.jp race.js `situationList` / `situationNameList`
+_SITUATION_CODE_MAP: dict[int, TrackCondition | None] = {
+    0: TrackCondition.GOOD,   # 良走路
+    1: TrackCondition.WET,    # 湿走路
+    2: None,                  # 風 (rare; not a surface condition)
+    3: None,                  # オイル (rare)
+    4: None,                  # 荒 (rare)
+    5: TrackCondition.MIXED,  # 斑走路
+}
+
+_SITUATION_LABEL: dict[int, str] = {
+    0: "良", 1: "湿", 2: "風", 3: "油", 4: "荒", 5: "斑",
+}
+
 
 def _parse_track_condition(value: str | None) -> TrackCondition | None:
     if not value:
@@ -121,6 +135,20 @@ class AutoraceJpScraper(BaseScraper):
         """Today's race schedule (no CSRF required)."""
         resp = await self._request("GET", f"{self._base_url}/race_info/XML/Hold/Today")
         return resp.json()
+
+    async def get_live_conditions(self, track: TrackCode) -> dict[str, object] | None:
+        """Fetch real-time weather/track conditions from Today API.
+
+        Returns dict with keys matching ``repo.update_race_conditions`` input,
+        or None if the track is not racing today.
+        """
+        data = await self.get_today_schedule()
+        body = data.get("body", data) if isinstance(data, dict) else {}
+        for item in body.get("today", []):
+            if item.get("placeCode") != track.value:
+                continue
+            return parse_today_conditions(item)
+        return None
 
     async def get_race_entries(self, track: TrackCode, race_date: date, race_no: int) -> RaceEntriesResponse:
         """Fetch race entries from Program API.
@@ -368,6 +396,35 @@ class AutoraceJpScraper(BaseScraper):
 # ------------------------------------------------------------------ #
 #  Helper functions
 # ------------------------------------------------------------------ #
+
+
+def parse_today_conditions(item: dict) -> dict[str, object]:
+    """Convert a single Today API schedule item into a conditions dict.
+
+    The returned dict is compatible with ``Repository.update_race_conditions``.
+    """
+    situation_code = item.get("situationCode")
+    track_cond: TrackCondition | None = None
+    if situation_code is not None:
+        try:
+            track_cond = _SITUATION_CODE_MAP.get(int(situation_code))
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "weather": item.get("weather") or None,
+        "track_condition": track_cond,
+        "temperature": _safe_float(item.get("temp")),
+        "humidity": _safe_float(item.get("humid")),
+        "track_temperature": _safe_float(item.get("roadtemp")),
+    }
+
+
+def situation_code_label(code: int | None) -> str:
+    """Human-readable label for a situationCode value."""
+    if code is None:
+        return ""
+    return _SITUATION_LABEL.get(int(code), "")
 
 
 def _parse_race_dev(value: object) -> float | None:

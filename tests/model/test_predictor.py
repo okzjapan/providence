@@ -91,6 +91,43 @@ def test_predictor_returns_all_ticket_types(tmp_path: Path):
     assert bundle.index_map.index_to_post_position == (1, 2, 3)
 
 
+def test_predictor_ensemble_returns_all_ticket_types(tmp_path: Path):
+    pipeline = FeaturePipeline()
+    raw = _raw_df()
+    features = pipeline.build_features(raw)
+    train_df = features.filter(pl.col("race_date") < date(2021, 1, 4))
+    history_raw = raw.filter(pl.col("race_date") < date(2021, 1, 4))
+    target_df = raw.filter(pl.col("race_date") == date(2021, 1, 4))
+
+    t = Trainer(pipeline=pipeline)
+    rank_art = t.train_lambdarank(train_df, train_df)
+    top2_art = t.train_binary_top2(train_df, train_df)
+    win_art = t.train_binary_win(train_df, train_df)
+    huber_art = t.train_huber(train_df, train_df)
+
+    store = ModelStore(base_dir=str(tmp_path / "models"))
+    models = {
+        "lambdarank": rank_art.model,
+        "binary_top2": top2_art.model,
+        "binary_win": win_art.model,
+        "huber": huber_art.model,
+    }
+    weights = {"lambdarank": 0.4, "binary_top2": 0.3, "binary_win": 0.15, "huber": 0.15}
+    store.save_ensemble(
+        models,
+        weights,
+        {"temperature": 1.0, "feature_columns": rank_art.feature_columns},
+        version="e001",
+    )
+
+    predictor = Predictor(store, pipeline, DummyLoader(history_raw), version="e001")
+    predictor.load_history(date(2021, 1, 4))
+    bundle = predictor.predict_race(target_df)
+    assert set(bundle.ticket_probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"}
+    assert bundle.model_version == "e001"
+    assert bundle.temperature == 1.0
+
+
 def test_predictor_predict_races_batches_same_day(tmp_path: Path):
     pipeline = FeaturePipeline()
     raw = _raw_df().with_columns(

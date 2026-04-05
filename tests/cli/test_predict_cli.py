@@ -3,7 +3,7 @@ from datetime import date, datetime
 import polars as pl
 import pytest
 
-from providence.cli.predict import _refresh_race_entries, build_prediction_rows, get_missing_trial_positions
+from providence.services.prediction_runner import build_prediction_rows, get_missing_trial_positions, refresh_race_entries
 from providence.domain.enums import TicketType, TrackCode
 from providence.scraper.schemas import EntryRow, RaceEntriesResponse
 from providence.strategy.types import DecisionContext, EvaluationMode, RecommendedBet, StrategyRunResult
@@ -66,8 +66,8 @@ async def test_refresh_race_entries_returns_warning_on_fetch_failure(monkeypatch
         async def get_race_entries(self, track_code, target_date, race_no):  # noqa: ARG002
             raise RuntimeError("boom")
 
-    monkeypatch.setattr("providence.cli.predict.AutoraceJpScraper", DummyScraper)
-    warning = await _refresh_race_entries(date(2026, 4, 3), TrackCode.SANYO, 7, None, None)  # type: ignore[arg-type]
+    monkeypatch.setattr("providence.services.prediction_runner.AutoraceJpScraper", DummyScraper)
+    warning = await refresh_race_entries(date(2026, 4, 3), TrackCode.SANYO, 7, None, None)  # type: ignore[arg-type]
     assert "最新 Program の取得に失敗" in warning
 
 
@@ -86,6 +86,6 @@ async def test_refresh_race_entries_returns_warning_on_empty_entries(monkeypatch
         async def get_race_entries(self, track_code, target_date, race_no):  # noqa: ARG002
             return RaceEntriesResponse(track=track_code, race_date=target_date, race_number=race_no, entries=[])
 
-    monkeypatch.setattr("providence.cli.predict.AutoraceJpScraper", DummyScraper)
-    warning = await _refresh_race_entries(date(2026, 4, 3), TrackCode.SANYO, 7, None, None)  # type: ignore[arg-type]
+    monkeypatch.setattr("providence.services.prediction_runner.AutoraceJpScraper", DummyScraper)
+    warning = await refresh_race_entries(date(2026, 4, 3), TrackCode.SANYO, 7, None, None)  # type: ignore[arg-type]
     assert "最新 Program に出走情報が無い" in warning

@@ -65,19 +65,20 @@ class Trainer:
         )
         return TrainingArtifacts(model, feature_columns, final_params, "lambdarank")
 
-    def train_regression(
+    def train_binary_top2(
         self,
         train_df: pl.DataFrame,
         val_df: pl.DataFrame,
         params: dict | None = None,
     ) -> TrainingArtifacts:
         feature_columns = self.pipeline.feature_columns(train_df)
-        train_data = _to_lgb_dataset(train_df, feature_columns, objective="regression")
-        val_data = _to_lgb_dataset(val_df, feature_columns, objective="regression", reference=train_data)
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_top2")
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_top2", reference=train_data)
 
         final_params = {
-            "objective": "regression",
-            "metric": "rmse",
+            "objective": "binary",
+            "metric": "binary_logloss",
+            "is_unbalance": True,
             "learning_rate": 0.05,
             "num_leaves": 63,
             "min_data_in_leaf": 50,
@@ -99,7 +100,81 @@ class Trainer:
             valid_names=["val"],
             callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)],
         )
-        return TrainingArtifacts(model, feature_columns, final_params, "regression")
+        return TrainingArtifacts(model, feature_columns, final_params, "binary_top2")
+
+    def train_binary_win(
+        self,
+        train_df: pl.DataFrame,
+        val_df: pl.DataFrame,
+        params: dict | None = None,
+    ) -> TrainingArtifacts:
+        feature_columns = self.pipeline.feature_columns(train_df)
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_win")
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_win", reference=train_data)
+
+        final_params = {
+            "objective": "binary",
+            "metric": "binary_logloss",
+            "is_unbalance": True,
+            "learning_rate": 0.05,
+            "num_leaves": 63,
+            "min_data_in_leaf": 50,
+            "feature_fraction": 0.9,
+            "bagging_fraction": 0.9,
+            "bagging_freq": 1,
+            "lambda_l1": 0.0,
+            "lambda_l2": 0.0,
+            "verbosity": -1,
+            "seed": self.random_seed,
+            **(params or {}),
+        }
+
+        model = lgb.train(
+            final_params,
+            train_data,
+            num_boost_round=1000,
+            valid_sets=[val_data],
+            valid_names=["val"],
+            callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)],
+        )
+        return TrainingArtifacts(model, feature_columns, final_params, "binary_win")
+
+    def train_huber(
+        self,
+        train_df: pl.DataFrame,
+        val_df: pl.DataFrame,
+        params: dict | None = None,
+    ) -> TrainingArtifacts:
+        feature_columns = self.pipeline.feature_columns(train_df)
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="huber")
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="huber", reference=train_data)
+
+        final_params = {
+            "objective": "huber",
+            "metric": "huber",
+            "huber_delta": 1.0,
+            "learning_rate": 0.05,
+            "num_leaves": 63,
+            "min_data_in_leaf": 50,
+            "feature_fraction": 0.9,
+            "bagging_fraction": 0.9,
+            "bagging_freq": 1,
+            "lambda_l1": 0.0,
+            "lambda_l2": 0.0,
+            "verbosity": -1,
+            "seed": self.random_seed,
+            **(params or {}),
+        }
+
+        model = lgb.train(
+            final_params,
+            train_data,
+            num_boost_round=1000,
+            valid_sets=[val_data],
+            valid_names=["val"],
+            callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)],
+        )
+        return TrainingArtifacts(model, feature_columns, final_params, "huber")
 
     def optimize_hyperparams(
         self,
@@ -145,6 +220,17 @@ class Trainer:
         return study.best_trial.params
 
 
+_LABEL_FUNCS: dict[str, str] = {
+    "lambdarank": "lambdarank",
+    "regression": "regression",
+    "huber": "regression",
+    "binary_top2": "binary_top2",
+    "binary_win": "binary_win",
+}
+
+_RANKING_OBJECTIVES = {"lambdarank"}
+
+
 def _to_lgb_dataset(
     df: pl.DataFrame,
     feature_columns: list[str],
@@ -160,13 +246,18 @@ def _to_lgb_dataset(
         else:
             data[column] = series.cast(pl.Float64).fill_null(float("nan")).to_list()
     X = pd.DataFrame(data)
-    group = sorted_df.group_by("race_id").len().sort("race_id")["len"].to_list()
 
-    if objective == "lambdarank":
+    label_key = _LABEL_FUNCS.get(objective, objective)
+    if label_key == "lambdarank":
         y = _lambdarank_labels(sorted_df)
+    elif label_key == "binary_top2":
+        y = _binary_top2_labels(sorted_df)
+    elif label_key == "binary_win":
+        y = _binary_win_labels(sorted_df)
     else:
         y = _regression_targets(sorted_df)
 
+    group = sorted_df.group_by("race_id").len().sort("race_id")["len"].to_list() if objective in _RANKING_OBJECTIVES else None
     categorical = [col for col in FeaturePipeline.categorical_columns if col in feature_columns]
     return lgb.Dataset(
         X,
@@ -188,6 +279,22 @@ def _lambdarank_labels(df: pl.DataFrame) -> np.ndarray:
             continue
         labels.append(max(int(field_size - position), 0))
     return np.array(labels, dtype=int)
+
+
+def _binary_top2_labels(df: pl.DataFrame) -> np.ndarray:
+    positions = df["finish_position"].to_list()
+    return np.array(
+        [1.0 if pos is not None and 1 <= pos <= 2 else 0.0 for pos in positions],
+        dtype=float,
+    )
+
+
+def _binary_win_labels(df: pl.DataFrame) -> np.ndarray:
+    positions = df["finish_position"].to_list()
+    return np.array(
+        [1.0 if pos == 1 else 0.0 for pos in positions],
+        dtype=float,
+    )
 
 
 def _regression_targets(df: pl.DataFrame) -> np.ndarray:

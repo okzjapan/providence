@@ -36,7 +36,7 @@ def upgrade() -> None:
     )
     op.create_table('scrape_log',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column('executed_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('executed_at', sa.DateTime(), server_default=sa.func.now(), nullable=False),
     sa.Column('source', sa.String(), nullable=False),
     sa.Column('target', sa.String(), nullable=False),
     sa.Column('target_date', sa.Date(), nullable=True),
@@ -91,7 +91,7 @@ def upgrade() -> None:
     sa.Column('combination', sa.String(), nullable=False),
     sa.Column('odds_value', sa.Float(), nullable=False),
     sa.Column('popularity', sa.Integer(), nullable=True),
-    sa.Column('captured_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('captured_at', sa.DateTime(), server_default=sa.func.now(), nullable=False),
     sa.ForeignKeyConstraint(['race_id'], ['races.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -100,7 +100,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('race_id', sa.Integer(), nullable=False),
     sa.Column('model_version', sa.String(), nullable=False),
-    sa.Column('predicted_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('predicted_at', sa.DateTime(), server_default=sa.func.now(), nullable=False),
     sa.Column('ticket_type', sa.String(), nullable=False),
     sa.Column('combination', sa.String(), nullable=False),
     sa.Column('predicted_prob', sa.Float(), nullable=False),

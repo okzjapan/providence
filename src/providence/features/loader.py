@@ -76,7 +76,6 @@ class DataLoader:
         """
 
         schema_overrides = {
-            "race_date": pl.Utf8,
             "track_condition": pl.Utf8,
             "weather": pl.Utf8,
             "grade": pl.Utf8,
@@ -92,8 +91,12 @@ class DataLoader:
         if df.is_empty():
             return df
 
+        if df["race_date"].dtype == pl.Utf8:
+            df = df.with_columns(pl.col("race_date").str.strptime(pl.Date, strict=False))
+        elif df["race_date"].dtype != pl.Date:
+            df = df.with_columns(pl.col("race_date").cast(pl.Date))
+
         return df.with_columns(
-            pl.col("race_date").str.strptime(pl.Date, strict=False),
             pl.concat_str(
                 [
                     pl.col("race_date").cast(pl.Utf8),
