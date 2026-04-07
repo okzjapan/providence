@@ -23,7 +23,7 @@ def _add_pace_group_features(group: pl.DataFrame) -> pl.DataFrame:
 
     race_dates = group["race_date"].to_list()
     corner4 = group["corner_4_pos"].to_list()
-    num_runners_list = group["num_runners"].to_list()
+    num_runners_list = group["field_size"].to_list()
 
     avg_pos_score: list[float | None] = []
     primary_style: list[int | None] = []

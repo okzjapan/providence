@@ -48,7 +48,7 @@ class KeibaDataLoader:
             r.weather_code,
             r.class_code,
             r.weight_rule_code,
-            r.num_runners,
+            r.num_runners AS field_size,
             re.id AS entry_id,
             re.post_position,
             re.blood_registration_number,

@@ -19,11 +19,11 @@ class TestAddPaceFeatures:
     def test_position_score_calculation(self):
         df = _make_df([
             {"blood_registration_number": "H001", "race_date": date(2024, 1, 1), "race_number": 1, "post_position": 1,
-             "corner_4_pos": 1, "num_runners": 16},
+             "corner_4_pos": 1, "field_size": 16},
             {"blood_registration_number": "H001", "race_date": date(2024, 2, 1), "race_number": 1, "post_position": 1,
-             "corner_4_pos": 8, "num_runners": 16},
+             "corner_4_pos": 8, "field_size": 16},
             {"blood_registration_number": "H001", "race_date": date(2024, 3, 1), "race_number": 1, "post_position": 1,
-             "corner_4_pos": 3, "num_runners": 16},
+             "corner_4_pos": 3, "field_size": 16},
         ])
         result = add_pace_features(df)
         assert result["avg_position_score"][0] is None
@@ -33,7 +33,7 @@ class TestAddPaceFeatures:
     def test_running_style_front_runner(self):
         df = _make_df([
             {"blood_registration_number": "H001", "race_date": date(2024, 1, i), "race_number": 1, "post_position": 1,
-             "corner_4_pos": 1, "num_runners": 16}
+             "corner_4_pos": 1, "field_size": 16}
             for i in range(1, 7)
         ])
         result = add_pace_features(df)

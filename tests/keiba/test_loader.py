@@ -30,7 +30,7 @@ class TestLoadRaceDataset:
         assert not df.is_empty()
         required = [
             "race_id", "race_key", "race_date", "racecourse_id", "distance",
-            "surface_code", "going_code", "class_code", "num_runners",
+            "surface_code", "going_code", "class_code", "field_size",
             "entry_id", "post_position", "blood_registration_number",
             "jockey_code", "trainer_code", "impost_weight", "idm",
             "finish_position", "race_time_sec", "last_3f_time",
