@@ -10,6 +10,8 @@ import polars as pl
 class KeibaFeaturePipeline:
     """Compute train/predict features for JRA horse racing."""
 
+    categorical_columns: list[str] = ["class_code"]
+
     categorical_maps = {
         "class_code": {
             "05": 0,
@@ -23,6 +25,7 @@ class KeibaFeaturePipeline:
     }
 
     excluded_feature_columns = {
+        # IDs and metadata
         "row_key",
         "race_id",
         "entry_id",
@@ -33,16 +36,27 @@ class KeibaFeaturePipeline:
         "jockey_code",
         "trainer_code",
         "horse_birth_date",
-        "finish_position",
-        "race_time_raw",
-        "race_time_sec",
-        "body_weight_change_raw",
-        "confirmed_win_odds",
-        "confirmed_popularity",
-        "sire_code",
-        "broodmare_sire_code",
         "distance_aptitude_code",
         "weight_rule_code",
+        # Label
+        "finish_position",
+        # Post-race data (LEAK: only known after the race finishes)
+        "race_time_raw",
+        "race_time_sec",
+        "last_3f_time",
+        "first_3f_time",
+        "margin",
+        "corner_1_pos",
+        "corner_2_pos",
+        "corner_3_pos",
+        "corner_4_pos",
+        "confirmed_win_odds",
+        "confirmed_popularity",
+        # Raw columns (parsed versions are used instead)
+        "body_weight_change_raw",
+        # Used for aggregation only (not direct features)
+        "sire_code",
+        "broodmare_sire_code",
     }
 
     def build_features(self, raw_df: pl.DataFrame) -> pl.DataFrame:
