@@ -52,6 +52,8 @@ class KeibaFeaturePipeline:
         "corner_4_pos",
         "confirmed_win_odds",
         "confirmed_popularity",
+        # Odds (excluded from model input; used only for post-prediction EV calculation)
+        "base_win_odds",
         # Raw columns (parsed versions are used instead)
         "body_weight_change_raw",
         # Used for aggregation only (not direct features)
