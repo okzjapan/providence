@@ -42,7 +42,7 @@ def test_quinella_and_trio_counts():
 def test_compute_all_ticket_probs_contains_all_types():
     scores = np.array([1.0, 0.5, 0.2, -0.1])
     probs = compute_all_ticket_probs(scores)
-    assert set(probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"}
+    assert set(probs) == {"win", "place", "exacta", "quinella", "trifecta", "trio", "wide"}
 
 
 def test_temperature_scaler_identity_transform():

@@ -27,6 +27,7 @@ class Trainer:
     def __init__(self, pipeline: FeaturePipeline | None = None, random_seed: int = 42) -> None:
         self.pipeline = pipeline or FeaturePipeline()
         self.random_seed = random_seed
+        self._categorical_columns = FeaturePipeline.categorical_columns
 
     def train_lambdarank(
         self,
@@ -35,8 +36,9 @@ class Trainer:
         params: dict | None = None,
     ) -> TrainingArtifacts:
         feature_columns = self.pipeline.feature_columns(train_df)
-        train_data = _to_lgb_dataset(train_df, feature_columns, objective="lambdarank")
-        val_data = _to_lgb_dataset(val_df, feature_columns, objective="lambdarank", reference=train_data)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="lambdarank", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="lambdarank", reference=train_data, categorical_columns=cat_cols)
 
         final_params = {
             "objective": "lambdarank",
@@ -72,8 +74,9 @@ class Trainer:
         params: dict | None = None,
     ) -> TrainingArtifacts:
         feature_columns = self.pipeline.feature_columns(train_df)
-        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_top2")
-        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_top2", reference=train_data)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_top2", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_top2", reference=train_data, categorical_columns=cat_cols)
 
         final_params = {
             "objective": "binary",
@@ -109,13 +112,161 @@ class Trainer:
         params: dict | None = None,
     ) -> TrainingArtifacts:
         feature_columns = self.pipeline.feature_columns(train_df)
-        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_win")
-        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_win", reference=train_data)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_win", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_win", reference=train_data, categorical_columns=cat_cols)
 
         final_params = {
             "objective": "binary",
             "metric": "binary_logloss",
             "is_unbalance": True,
+            "learning_rate": 0.01,
+            "num_leaves": 31,
+            "min_data_in_leaf": 100,
+            "feature_fraction": 0.8,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+            "lambda_l1": 1.0,
+            "lambda_l2": 1.0,
+            "verbosity": -1,
+            "seed": self.random_seed,
+            **(params or {}),
+        }
+
+        model = lgb.train(
+            final_params,
+            train_data,
+            num_boost_round=2000,
+            valid_sets=[val_data],
+            valid_names=["val"],
+            callbacks=[lgb.early_stopping(100), lgb.log_evaluation(50)],
+        )
+        return TrainingArtifacts(model, feature_columns, final_params, "binary_win")
+
+    def train_binary_top3(
+        self,
+        train_df: pl.DataFrame,
+        val_df: pl.DataFrame,
+        params: dict | None = None,
+    ) -> TrainingArtifacts:
+        feature_columns = self.pipeline.feature_columns(train_df)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_top3", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_top3", reference=train_data, categorical_columns=cat_cols)
+
+        final_params = {
+            "objective": "binary",
+            "metric": "binary_logloss",
+            "is_unbalance": True,
+            "learning_rate": 0.02,
+            "num_leaves": 31,
+            "min_data_in_leaf": 100,
+            "feature_fraction": 0.8,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+            "lambda_l1": 0.5,
+            "lambda_l2": 0.5,
+            "verbosity": -1,
+            "seed": self.random_seed,
+            **(params or {}),
+        }
+
+        model = lgb.train(
+            final_params,
+            train_data,
+            num_boost_round=2000,
+            valid_sets=[val_data],
+            valid_names=["val"],
+            callbacks=[lgb.early_stopping(100), lgb.log_evaluation(50)],
+        )
+        return TrainingArtifacts(model, feature_columns, final_params, "binary_top3")
+
+    def train_focal_value(
+        self,
+        train_df: pl.DataFrame,
+        val_df: pl.DataFrame,
+        params: dict | None = None,
+        gamma: float = 2.0,
+    ) -> TrainingArtifacts:
+        """Train a Focal Loss binary model targeting top-2 finishes.
+
+        Focal Loss down-weights easy-to-classify examples and focuses on
+        hard cases (e.g. undervalued runners that finish top-2). This
+        produces better-calibrated probabilities in the tails where
+        profitable bets live.
+        """
+        from scipy.special import expit
+
+        feature_columns = self.pipeline.feature_columns(train_df)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="binary_top2", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="binary_top2", reference=train_data, categorical_columns=cat_cols)
+
+        def focal_objective(preds: np.ndarray, data: lgb.Dataset) -> tuple[np.ndarray, np.ndarray]:
+            y = data.get_label()
+            p = expit(preds)
+            pt = np.where(y == 1, p, 1.0 - p)
+            alpha_t = np.where(y == 1, 0.75, 0.25)
+            grad = alpha_t * (
+                gamma * (1.0 - pt) ** (gamma - 1.0) * np.log(np.maximum(pt, 1e-12)) * (2.0 * y - 1.0) * p * (1.0 - p)
+                + (1.0 - pt) ** gamma * (p - y)
+            )
+            hess = np.abs(grad) * (1.0 - np.abs(grad))
+            hess = np.maximum(hess, 1e-6)
+            return grad, hess
+
+        def focal_eval(preds: np.ndarray, data: lgb.Dataset) -> tuple[str, float, bool]:
+            y = data.get_label()
+            p = expit(preds)
+            pt = np.where(y == 1, p, 1.0 - p)
+            alpha_t = np.where(y == 1, 0.75, 0.25)
+            loss = -alpha_t * (1.0 - pt) ** gamma * np.log(np.maximum(pt, 1e-12))
+            return "focal_loss", float(np.mean(loss)), False
+
+        final_params = {
+            "objective": focal_objective,
+            "learning_rate": 0.02,
+            "num_leaves": 31,
+            "min_data_in_leaf": 100,
+            "feature_fraction": 0.8,
+            "bagging_fraction": 0.8,
+            "bagging_freq": 1,
+            "lambda_l1": 0.5,
+            "lambda_l2": 0.5,
+            "verbosity": -1,
+            "seed": self.random_seed,
+            **(params or {}),
+        }
+
+        model = lgb.train(
+            final_params,
+            train_data,
+            num_boost_round=2000,
+            valid_sets=[val_data],
+            valid_names=["val"],
+            feval=focal_eval,
+            callbacks=[lgb.early_stopping(100), lgb.log_evaluation(50)],
+        )
+        saved_params = {k: v for k, v in final_params.items() if k != "objective"}
+        saved_params["objective"] = "focal_loss_custom"
+        return TrainingArtifacts(model, feature_columns, saved_params, "focal_value")
+
+    def train_xendcg(
+        self,
+        train_df: pl.DataFrame,
+        val_df: pl.DataFrame,
+        params: dict | None = None,
+    ) -> TrainingArtifacts:
+        """Train with XE-NDCG-MART objective for smoother probability calibration."""
+        feature_columns = self.pipeline.feature_columns(train_df)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="lambdarank", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="lambdarank", reference=train_data, categorical_columns=cat_cols)
+
+        final_params = {
+            "objective": "rank_xendcg",
+            "metric": "ndcg",
+            "ndcg_eval_at": [1, 3],
             "learning_rate": 0.05,
             "num_leaves": 63,
             "min_data_in_leaf": 50,
@@ -137,7 +288,7 @@ class Trainer:
             valid_names=["val"],
             callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)],
         )
-        return TrainingArtifacts(model, feature_columns, final_params, "binary_win")
+        return TrainingArtifacts(model, feature_columns, final_params, "xendcg")
 
     def train_huber(
         self,
@@ -146,8 +297,9 @@ class Trainer:
         params: dict | None = None,
     ) -> TrainingArtifacts:
         feature_columns = self.pipeline.feature_columns(train_df)
-        train_data = _to_lgb_dataset(train_df, feature_columns, objective="huber")
-        val_data = _to_lgb_dataset(val_df, feature_columns, objective="huber", reference=train_data)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="huber", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="huber", reference=train_data, categorical_columns=cat_cols)
 
         final_params = {
             "objective": "huber",
@@ -169,10 +321,10 @@ class Trainer:
         model = lgb.train(
             final_params,
             train_data,
-            num_boost_round=1000,
+            num_boost_round=2000,
             valid_sets=[val_data],
             valid_names=["val"],
-            callbacks=[lgb.early_stopping(50), lgb.log_evaluation(50)],
+            callbacks=[lgb.early_stopping(100), lgb.log_evaluation(100)],
         )
         return TrainingArtifacts(model, feature_columns, final_params, "huber")
 
@@ -183,8 +335,9 @@ class Trainer:
         n_trials: int = 100,
     ) -> dict[str, float | int]:
         feature_columns = self.pipeline.feature_columns(train_df)
-        train_data = _to_lgb_dataset(train_df, feature_columns, objective="lambdarank")
-        val_data = _to_lgb_dataset(val_df, feature_columns, objective="lambdarank", reference=train_data)
+        cat_cols = self._categorical_columns
+        train_data = _to_lgb_dataset(train_df, feature_columns, objective="lambdarank", categorical_columns=cat_cols)
+        val_data = _to_lgb_dataset(val_df, feature_columns, objective="lambdarank", reference=train_data, categorical_columns=cat_cols)
 
         def objective(trial: optuna.Trial) -> float:
             params = {
@@ -225,6 +378,7 @@ _LABEL_FUNCS: dict[str, str] = {
     "regression": "regression",
     "huber": "regression",
     "binary_top2": "binary_top2",
+    "binary_top3": "binary_top3",
     "binary_win": "binary_win",
 }
 
@@ -236,12 +390,15 @@ def _to_lgb_dataset(
     feature_columns: list[str],
     objective: str,
     reference: lgb.Dataset | None = None,
+    categorical_columns: list[str] | None = None,
 ) -> lgb.Dataset:
+    if categorical_columns is None:
+        categorical_columns = FeaturePipeline.categorical_columns
     sorted_df = df.sort(["race_date", "race_number", "race_id", "post_position"])
     data: dict[str, list] = {}
     for column in feature_columns:
         series = sorted_df[column]
-        if column in FeaturePipeline.categorical_columns:
+        if column in categorical_columns:
             data[column] = series.cast(pl.Int32).fill_null(-1).to_list()
         else:
             data[column] = series.cast(pl.Float64).fill_null(float("nan")).to_list()
@@ -252,17 +409,25 @@ def _to_lgb_dataset(
         y = _lambdarank_labels(sorted_df)
     elif label_key == "binary_top2":
         y = _binary_top2_labels(sorted_df)
+    elif label_key == "binary_top3":
+        y = _binary_top3_labels(sorted_df)
     elif label_key == "binary_win":
         y = _binary_win_labels(sorted_df)
     else:
         y = _regression_targets(sorted_df)
 
     group = sorted_df.group_by("race_id").len().sort("race_id")["len"].to_list() if objective in _RANKING_OBJECTIVES else None
-    categorical = [col for col in FeaturePipeline.categorical_columns if col in feature_columns]
+    categorical = [col for col in categorical_columns if col in feature_columns]
+
+    weight = None
+    if "field_size" in sorted_df.columns:
+        weight = (1.0 / sorted_df["field_size"].cast(pl.Float64).fill_null(8.0)).to_list()
+
     return lgb.Dataset(
         X,
         label=y,
         group=group,
+        weight=weight,
         categorical_feature=categorical,
         reference=reference,
         free_raw_data=False,
@@ -285,6 +450,14 @@ def _binary_top2_labels(df: pl.DataFrame) -> np.ndarray:
     positions = df["finish_position"].to_list()
     return np.array(
         [1.0 if pos is not None and 1 <= pos <= 2 else 0.0 for pos in positions],
+        dtype=float,
+    )
+
+
+def _binary_top3_labels(df: pl.DataFrame) -> np.ndarray:
+    positions = df["finish_position"].to_list()
+    return np.array(
+        [1.0 if pos is not None and 1 <= pos <= 3 else 0.0 for pos in positions],
         dtype=float,
     )
 

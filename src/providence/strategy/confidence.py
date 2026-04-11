@@ -8,10 +8,12 @@ from providence.strategy.types import RacePredictionBundle
 
 
 def race_confidence(bundle: RacePredictionBundle) -> float:
-    """Return a simple [0, 1] confidence score.
+    """Return a [0, 1] confidence score.
 
-    The first version intentionally uses only stable signals already exposed by
-    the feature pipeline: score dispersion and rider history depth.
+    Three components weighted:
+    - Score spread: larger dispersion = more decisive prediction
+    - Rider history coverage: more experienced riders = more reliable features
+    - Trial time coverage: more trial times = core input data available
     """
     if not bundle.scores:
         return 0.0
@@ -21,9 +23,14 @@ def race_confidence(bundle: RacePredictionBundle) -> float:
     score_spread = max_score - min_score
     spread_component = 1.0 - math.exp(-max(score_spread, 0.0))
 
+    n = len(bundle.scores)
     if bundle.features_total_races:
-        coverage = sum(1 for value in bundle.features_total_races if value >= 5) / len(bundle.features_total_races)
+        history_coverage = sum(1 for value in bundle.features_total_races if value >= 5) / len(bundle.features_total_races)
     else:
-        coverage = 0.0
+        history_coverage = 0.0
 
-    return float(max(0.0, min(1.0, 0.6 * spread_component + 0.4 * coverage)))
+    trial_coverage = 1.0
+    if bundle.features_trial_available is not None and n > 0:
+        trial_coverage = sum(bundle.features_trial_available) / n
+
+    return float(max(0.0, min(1.0, 0.5 * spread_component + 0.3 * history_coverage + 0.2 * trial_coverage)))

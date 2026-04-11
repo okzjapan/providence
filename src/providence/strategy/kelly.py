@@ -11,7 +11,10 @@ from providence.strategy.types import RacePredictionBundle, TicketCandidate
 
 
 def enumerate_top3_scenarios(bundle: RacePredictionBundle) -> list[tuple[tuple[int, int, int], float]]:
-    values = _strengths(bundle.scores, bundle.temperature)
+    if bundle.scenario_strengths is not None:
+        values = np.maximum(np.asarray(bundle.scenario_strengths, dtype=float), 1e-12)
+    else:
+        values = _strengths(bundle.scores, bundle.temperature)
     total = values.sum()
     scenarios: list[tuple[tuple[int, int, int], float]] = []
     for i, j, k in permutations(range(len(values)), 3):
@@ -106,6 +109,8 @@ def _ticket_hits(ticket_type: TicketType, combination: tuple[int, ...], top3: tu
     first, second, third = top3
     if ticket_type == TicketType.WIN:
         return combination == (first,)
+    if ticket_type == TicketType.PLACE:
+        return combination[0] in top3
     if ticket_type == TicketType.EXACTA:
         return combination == (first, second)
     if ticket_type == TicketType.QUINELLA:

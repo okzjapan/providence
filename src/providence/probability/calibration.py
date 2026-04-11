@@ -1,11 +1,14 @@
-"""Temperature scaling for probability calibration."""
+"""Probability calibration: temperature scaling and isotonic regression."""
 
 from __future__ import annotations
 
 import math
+import pickle
+from pathlib import Path
 
 import numpy as np
 import optuna
+from sklearn.isotonic import IsotonicRegression
 
 from providence.probability.plackett_luce import compute_win_probs
 
@@ -40,3 +43,56 @@ class TemperatureScaler:
 
     def transform(self, scores: np.ndarray) -> np.ndarray:
         return np.asarray(scores, dtype=float) / self._temperature
+
+
+class IsotonicCalibrator:
+    """Non-parametric probability calibration via isotonic regression.
+
+    Learns the mapping from raw PL win probabilities to calibrated
+    probabilities that better match observed win frequencies.
+    """
+
+    def __init__(self) -> None:
+        self._model = IsotonicRegression(y_min=1e-6, y_max=1.0 - 1e-6, out_of_bounds="clip")
+        self._fitted = False
+
+    def fit(
+        self,
+        scores_per_race: list[np.ndarray],
+        winners_per_race: list[int],
+        temperature: float,
+    ) -> None:
+        raw_probs: list[float] = []
+        labels: list[float] = []
+        for scores, winner_idx in zip(scores_per_race, winners_per_race, strict=True):
+            probs = compute_win_probs(scores, temperature)
+            for i, p in enumerate(probs):
+                raw_probs.append(float(p))
+                labels.append(1.0 if i == winner_idx else 0.0)
+
+        X = np.array(raw_probs, dtype=float)
+        y = np.array(labels, dtype=float)
+        self._model.fit(X, y)
+        self._fitted = True
+
+    def calibrate(self, win_probs: np.ndarray) -> np.ndarray:
+        """Calibrate raw win probabilities and re-normalize to sum to 1."""
+        if not self._fitted:
+            return np.asarray(win_probs, dtype=float)
+        calibrated = self._model.predict(np.asarray(win_probs, dtype=float))
+        calibrated = np.maximum(calibrated, 1e-12)
+        total = calibrated.sum()
+        return calibrated / total if total > 0 else calibrated
+
+    @property
+    def fitted(self) -> bool:
+        return self._fitted
+
+    def save(self, path: str | Path) -> None:
+        with open(path, "wb") as f:
+            pickle.dump(self._model, f)
+
+    def load(self, path: str | Path) -> None:
+        with open(path, "rb") as f:
+            self._model = pickle.load(f)  # noqa: S301
+        self._fitted = True

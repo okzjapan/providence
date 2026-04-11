@@ -152,7 +152,7 @@
 | 期待値 | expected value | `expected_value` | `p × odds - 1` |
 | 信頼度 | confidence score | `confidence_score` | 0-1 |
 | 判断時刻 | judgment time | `judgment_time` | |
-| Kelly 分数 | fractional Kelly | `fractional_kelly` | 既定 0.25 |
+| Kelly 分数 | fractional Kelly | `fractional_kelly` | コード既定 0.25。V013 採用設定では **0.05**（0.10以上は赤字） |
 | 推奨額 | recommended bet | `recommended_bet` | 円。100 円単位 |
 | 最大合計賭け金 | max total stake | `max_total_stake` | 既定 10,000 円 |
 | 取り込みバッチ ID | ingestion batch ID | `ingestion_batch_id` | オッズの時系列管理用 |
@@ -164,3 +164,18 @@
 | 市場オッズ | market odds | `odds_value` | `odds_snapshot` テーブル |
 | 払い戻し | payout / refund | `payout_value` | `ticket_payouts` テーブル |
 | 基準オッズ | base odds | — | KYI から取得（JRDB、競馬用） |
+
+## V013 以降の追加用語
+
+| 日本語 | 英語 | 変数名 | 備考 |
+|--------|------|--------|------|
+| 前走人気順位 | previous odds rank | `odds_rank_prev1`〜`prev5` | 前走での単勝オッズに基づく人気順位 |
+| 市場エラースコア | value score | `value_score` | `max(0, win_odds_rank - finish_position)` |
+| Model B | value model | `value_model_b` | 市場エラーを予測する回帰モデル |
+| 能力 vs 市場 | ability vs market | `ability_vs_market` | Model A 順位 - 市場人気順位 |
+| 統合スコア | combined score | — | `α × Model_A + (1-α) × Model_B` |
+| FORM_SCORE | form score | `form_score` | 直近5走の重み付き着順平均（0.5指数減衰） |
+| EWM | exponential weighted mean | `ewm_race_time` 等 | 指数加重平均 |
+| 人気上回り率 | beat odds rate | `beat_odds_rate` | 直近5走で着順が人気を上回った割合 |
+| 実効予測タイム | effective predicted time | `effective_predicted_time` | `predicted_race_time + handicap_seconds` |
+| 控除率 | takeout rate | `PAYOUT_RATE` | オートレース一律25%。`PAYOUT_RATE=0.75` |

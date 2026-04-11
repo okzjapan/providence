@@ -83,8 +83,11 @@ class ModelStore:
     def load(self, version: str = "latest") -> tuple[lgb.Booster, dict]:
         actual_version = self._resolve_version(version)
         version_dir = self.base_dir / actual_version
-        model = lgb.Booster(model_file=str(version_dir / "model.txt"))
         metadata = json.loads((version_dir / "metadata.json").read_text())
+        model_path = version_dir / "model.txt"
+        if not model_path.exists() and metadata.get("model_type") == "ensemble":
+            model_path = version_dir / "lambdarank.txt"
+        model = lgb.Booster(model_file=str(model_path))
         return model, metadata
 
     def load_ensemble(self, version: str = "latest") -> tuple[dict[str, lgb.Booster], dict[str, float], dict]:

@@ -99,6 +99,21 @@ class RacePredictionBundle:
     index_map: RaceIndexMap
     ticket_probs: dict[str, dict]
     features_total_races: tuple[int, ...]
+    features_trial_available: tuple[int, ...] | None = None
+    scenario_strengths: tuple[float, ...] | None = None
+
+
+DEFAULT_MIN_PROBABILITY_BY_TICKET: dict[TicketType, float] = {
+    TicketType.WIN: 0.05,
+    TicketType.EXACTA: 0.02,
+    TicketType.QUINELLA: 0.04,
+    TicketType.WIDE: 0.05,
+    TicketType.TRIFECTA: 0.006,
+    TicketType.TRIO: 0.02,
+}
+
+
+PAYOUT_RATE = 0.75
 
 
 @dataclass(frozen=True)
@@ -109,9 +124,19 @@ class StrategyConfig:
     min_weight_threshold: float = 0.01
     min_expected_value: float = 0.0
     min_probability: float = 0.0
+    min_probability_by_ticket: dict[TicketType, float] | None = None
+    min_odds: float | None = None
+    max_odds: float | None = None
     max_candidates: int = 12
     min_confidence: float = 0.1
+    min_edge: float | None = None
+    prob_power: float | None = None
     allowed_ticket_types: frozenset[TicketType] | None = None
+
+    def effective_min_probability(self, ticket_type: TicketType) -> float:
+        if self.min_probability_by_ticket:
+            return self.min_probability_by_ticket.get(ticket_type, self.min_probability)
+        return self.min_probability
 
 
 @dataclass

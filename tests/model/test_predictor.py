@@ -3,11 +3,12 @@
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 from providence.features.loader import DataLoader
 from providence.features.pipeline import FeaturePipeline
-from providence.model.predictor import Predictor
+from providence.model.predictor import Predictor, _blend_pair_ticket_probs
 from providence.model.store import ModelStore
 from providence.model.trainer import Trainer
 
@@ -86,7 +87,7 @@ def test_predictor_returns_all_ticket_types(tmp_path: Path):
     predictor = Predictor(store, pipeline, DummyLoader(history_raw))
     predictor.load_history(date(2021, 1, 4))
     bundle = predictor.predict_race(target_df)
-    assert set(bundle.ticket_probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"}
+    assert set(bundle.ticket_probs) == {"win", "place", "exacta", "quinella", "trifecta", "trio", "wide"}
     assert bundle.model_version == "v001"
     assert bundle.index_map.index_to_post_position == (1, 2, 3)
 
@@ -123,7 +124,7 @@ def test_predictor_ensemble_returns_all_ticket_types(tmp_path: Path):
     predictor = Predictor(store, pipeline, DummyLoader(history_raw), version="e001")
     predictor.load_history(date(2021, 1, 4))
     bundle = predictor.predict_race(target_df)
-    assert set(bundle.ticket_probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"}
+    assert set(bundle.ticket_probs) == {"win", "place", "exacta", "quinella", "trifecta", "trio", "wide"}
     assert bundle.model_version == "e001"
     assert bundle.temperature == 1.0
 
@@ -164,4 +165,23 @@ def test_predictor_predict_races_batches_same_day(tmp_path: Path):
     predictor.load_history(date(2021, 1, 4))
     bundles = predictor.predict_races(target_df)
     assert len(bundles) == 2
-    assert all(set(bundle.ticket_probs) == {"win", "exacta", "quinella", "trifecta", "trio", "wide"} for bundle in bundles.values())
+    assert all(set(bundle.ticket_probs) == {"win", "place", "exacta", "quinella", "trifecta", "trio", "wide"} for bundle in bundles.values())
+
+
+def test_blend_pair_ticket_probs_only_changes_exacta_and_quinella():
+    main = {
+        "win": {0: 0.6, 1: 0.3, 2: 0.1},
+        "exacta": {(0, 1): 0.3, (1, 0): 0.1, (0, 2): 0.2, (2, 0): 0.05, (1, 2): 0.2, (2, 1): 0.15},
+        "quinella": {(0, 1): 0.4, (0, 2): 0.25, (1, 2): 0.35},
+        "trifecta": {(0, 1, 2): 0.4},
+        "trio": {(0, 1, 2): 0.5},
+        "wide": {(0, 1): 0.6, (0, 2): 0.4, (1, 2): 0.3},
+    }
+    aux_strengths = np.array([0.1, 0.8, 0.1])
+    blended = _blend_pair_ticket_probs(main, aux_strengths, 0.3)
+    assert blended["win"] == main["win"]
+    assert blended["trifecta"] == main["trifecta"]
+    assert blended["trio"] == main["trio"]
+    assert blended["wide"] == main["wide"]
+    assert blended["exacta"] != main["exacta"]
+    assert blended["quinella"] != main["quinella"]

@@ -10,6 +10,7 @@ from providence.strategy.types import MarketTicketOdds, PredictedTicketProb, Rac
 
 _KEY_TO_TICKET_TYPE: dict[str, TicketType] = {
     "win": TicketType.WIN,
+    "place": TicketType.PLACE,
     "exacta": TicketType.EXACTA,
     "quinella": TicketType.QUINELLA,
     "wide": TicketType.WIDE,

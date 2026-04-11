@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     oddspark_base_url: str = "https://www.oddspark.com"
     log_level: str = "INFO"
 
+    slack_webhook_url: str = ""
+
     jrdb_user_id: str = ""
     jrdb_password: str = ""
     jrdb_base_url: str = "http://www.jrdb.com"

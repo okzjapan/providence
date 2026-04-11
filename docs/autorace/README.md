@@ -13,6 +13,7 @@
 | [04-model-design.md](04-model-design.md) | モデル設計指針 | モデル学習、バリデーション |
 | [05-strategy-and-market.md](05-strategy-and-market.md) | 車券戦略・Kelly 最適化 | 戦略パラメータ調整 |
 | [06-pitfalls.md](06-pitfalls.md) | 陥りやすい罠と対策チェックリスト | 全フェーズ（レビュー時） |
+| [07-strategy-search-log.md](07-strategy-search-log.md) | 戦略パラメータ探索ログ・採用設定 | 戦略最適化、モデル比較 |
 | [glossary.md](glossary.md) | 用語集（日本語 / 英語 / コード変数名） | 命名規則、コードレビュー |
 
 ## 運用ルール

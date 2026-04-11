@@ -12,21 +12,51 @@ from providence.features.loader import DataLoader
 from providence.features.pipeline import FeaturePipeline
 from providence.model.ensemble import combine_race_scores
 from providence.model.store import ModelStore
-from providence.probability.plackett_luce import compute_all_ticket_probs
+from providence.probability.calibration import IsotonicCalibrator
+from providence.probability.plackett_luce import (
+    compute_all_ticket_probs,
+    compute_all_ticket_probs_from_strengths,
+)
 from providence.strategy.types import RaceIndexMap, RacePredictionBundle
 
 
-def _build_X(features: pl.DataFrame, feature_columns: list[str]) -> pd.DataFrame:
+def _build_X(
+    features: pl.DataFrame,
+    feature_columns: list[str],
+    categorical_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    if categorical_columns is None:
+        categorical_columns = FeaturePipeline.categorical_columns
     return pd.DataFrame(
         {
             column: (
                 features[column].cast(pl.Int32).fill_null(-1).to_list()
-                if column in FeaturePipeline.categorical_columns
+                if column in categorical_columns
                 else features[column].cast(pl.Float64).fill_null(float("nan")).to_list()
             )
             for column in feature_columns
         }
     )
+
+
+def _blend_pair_ticket_probs(
+    main_probs: dict[str, dict],
+    aux_strengths: np.ndarray | None,
+    alpha: float,
+) -> dict[str, dict]:
+    if aux_strengths is None or alpha <= 0.0:
+        return main_probs
+    aux_probs = compute_all_ticket_probs_from_strengths(aux_strengths)
+    blended = dict(main_probs)
+    blended["exacta"] = {
+        combo: float((1.0 - alpha) * prob + alpha * aux_probs["exacta"][combo])
+        for combo, prob in main_probs["exacta"].items()
+    }
+    blended["quinella"] = {
+        combo: float((1.0 - alpha) * prob + alpha * aux_probs["quinella"][combo])
+        for combo, prob in main_probs["quinella"].items()
+    }
+    return blended
 
 
 class Predictor:
@@ -60,12 +90,37 @@ class Predictor:
         self._history: pl.DataFrame | None = None
         self._history_date: date | None = None
 
+        self._calibrator: IsotonicCalibrator | None = None
+        calibrator_path = model_store.version_dir(version) / "isotonic_calibrator.pkl"
+        if calibrator_path.exists():
+            self._calibrator = IsotonicCalibrator()
+            self._calibrator.load(calibrator_path)
+
     def load_history(self, as_of_date: date) -> None:
         """Load prior-day history only to avoid same-day leakage."""
         cutoff = self.pipeline.history_end_for_date(as_of_date)
         if self._history_date != cutoff:
             self._history = self.loader.load_race_dataset(end_date=cutoff)
             self._history_date = cutoff
+
+    def load_history_from_parquet(self, cache_path: str, as_of_date: date) -> None:
+        """Load prior-day history from a Parquet cache file.
+
+        Produces identical results to load_history() when the Parquet file
+        was generated from the same DataLoader query.  Falls back to
+        load_history() if the cache file does not exist.
+        """
+        from pathlib import Path
+
+        path = Path(cache_path)
+        cutoff = self.pipeline.history_end_for_date(as_of_date)
+        if self._history_date == cutoff:
+            return
+        if path.exists():
+            self._history = pl.read_parquet(path)
+            self._history_date = cutoff
+        else:
+            self.load_history(as_of_date)
 
     def predict_race(self, race_entries_df: pl.DataFrame) -> RacePredictionBundle:
         if self._history is None:
@@ -98,13 +153,32 @@ class Predictor:
 
     def _bundle_from_features(self, features: pl.DataFrame) -> RacePredictionBundle:
         feature_columns = self.metadata["feature_columns"]
-        X = _build_X(features, feature_columns)
+        cat_cols = getattr(self.pipeline, "categorical_columns", FeaturePipeline.categorical_columns)
+        X = _build_X(features, feature_columns, categorical_columns=cat_cols)
+
+        aux_top2_strengths = None
+        pair_blend_alpha = float(self.metadata.get("pair_blend_alpha", 0.0))
 
         if self._is_ensemble and self._models is not None:
-            scores, temperature = self._ensemble_predict(X)
+            scores, temperature, aux_top2_strengths = self._ensemble_predict(X)
         else:
             scores = np.asarray(self.model.predict(X), dtype=float)
             temperature = self.temperature
+
+        scenario_strengths: np.ndarray
+        if self._calibrator is not None and self._calibrator.fitted:
+            from providence.probability.plackett_luce import compute_win_probs
+
+            raw_win_probs = compute_win_probs(scores, temperature)
+            calibrated_probs = self._calibrator.calibrate(raw_win_probs)
+            scenario_strengths = calibrated_probs
+            ticket_probs = compute_all_ticket_probs_from_strengths(calibrated_probs)
+        else:
+            from providence.probability.plackett_luce import compute_win_probs
+
+            scenario_strengths = compute_win_probs(scores, temperature)
+            ticket_probs = compute_all_ticket_probs(scores, temperature)
+        ticket_probs = _blend_pair_ticket_probs(ticket_probs, aux_top2_strengths, pair_blend_alpha)
 
         index_map = RaceIndexMap(
             index_to_post_position=tuple(int(value) for value in features["post_position"].to_list()),
@@ -114,19 +188,32 @@ class Predictor:
             int(value) if value is not None else 0
             for value in features.get_column("total_races").fill_null(0).to_list()
         )
+        trial_available = None
+        if "trial_time" in features.columns:
+            trial_available = tuple(
+                1 if value is not None else 0
+                for value in features["trial_time"].to_list()
+            )
         return RacePredictionBundle(
             race_id=int(features["race_id"][0]),
             model_version=self.model_version,
             temperature=temperature,
             scores=tuple(float(s) for s in scores),
             index_map=index_map,
-            ticket_probs=compute_all_ticket_probs(scores, temperature),
+            ticket_probs=ticket_probs,
             features_total_races=total_races,
+            features_trial_available=trial_available,
+            scenario_strengths=tuple(float(x) for x in scenario_strengths),
         )
 
-    def _ensemble_predict(self, X: pd.DataFrame) -> tuple[np.ndarray, float]:
+    def _ensemble_predict(self, X: pd.DataFrame) -> tuple[np.ndarray, float, np.ndarray | None]:
         raw_outputs: dict[str, np.ndarray] = {}
         for key, model in self._models.items():
             raw_outputs[key] = np.asarray(model.predict(X), dtype=float)
         log_scores = combine_race_scores(raw_outputs, self._weights)
-        return log_scores, 1.0
+        aux_top2 = raw_outputs.get("binary_top2")
+        if aux_top2 is not None:
+            aux_top2 = np.clip(np.asarray(aux_top2, dtype=float), 1e-8, 1.0 - 1e-8)
+            total = aux_top2.sum()
+            aux_top2 = aux_top2 / total if total > 0 else None
+        return log_scores, 1.0, aux_top2

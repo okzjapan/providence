@@ -180,6 +180,7 @@ def run_prediction(
     loader: DataLoader,
     config: StrategyConfig | None = None,
     provenance: str = "service",
+    skip_refresh: bool = False,
 ) -> PredictionResult:
     """Execute prediction for a single race. No I/O display, no save."""
     log = structlog.get_logger().bind(
@@ -188,15 +189,17 @@ def run_prediction(
         race=race_number,
     )
 
-    program_sync_warning = asyncio.run(
-        refresh_race_entries(target_date, track_code, race_number, repo, session_factory)
-    )
+    program_sync_warning = None
+    if not skip_refresh:
+        program_sync_warning = asyncio.run(
+            refresh_race_entries(target_date, track_code, race_number, repo, session_factory)
+        )
 
-    conditions_warning = asyncio.run(
-        refresh_race_conditions(target_date, track_code, race_number, repo, session_factory)
-    )
-    if conditions_warning and program_sync_warning is None:
-        program_sync_warning = conditions_warning
+        conditions_warning = asyncio.run(
+            refresh_race_conditions(target_date, track_code, race_number, repo, session_factory)
+        )
+        if conditions_warning and program_sync_warning is None:
+            program_sync_warning = conditions_warning
 
     race_df = loader.load_race_dataset(start_date=target_date, end_date=target_date).filter(
         (pl.col("track_id") == track_code.value) & (pl.col("race_number") == race_number)

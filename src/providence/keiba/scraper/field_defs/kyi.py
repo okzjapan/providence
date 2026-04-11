@@ -20,7 +20,7 @@ FIELDS: list[FieldSpec] = [
     FieldSpec("post_position", start=9, length=2, dtype="int"),
     FieldSpec("blood_registration_number", start=11, length=8, dtype="str"),
     FieldSpec("horse_name", start=19, length=36, dtype="str"),
-    # --- JRDB indices (ZZ9.9 format = already decimal, scale=1.0) ---
+    # --- JRDB indices (ZZ9.9 format) ---
     FieldSpec("idm", start=55, length=5, dtype="float"),
     FieldSpec("jockey_index", start=60, length=5, dtype="float"),
     FieldSpec("info_index", start=65, length=5, dtype="float"),
@@ -28,6 +28,7 @@ FIELDS: list[FieldSpec] = [
     # --- Running style / aptitude ---
     FieldSpec("running_style_code", start=90, length=1, dtype="int"),
     FieldSpec("distance_aptitude_code", start=91, length=1, dtype="str"),
+    FieldSpec("improvement_grade", start=92, length=1, dtype="int"),
     # --- Odds ---
     FieldSpec("base_win_odds", start=96, length=5, dtype="float"),
     FieldSpec("base_place_odds", start=103, length=5, dtype="float"),
@@ -35,18 +36,35 @@ FIELDS: list[FieldSpec] = [
     FieldSpec("popularity_index", start=140, length=5, dtype="int"),
     FieldSpec("training_index", start=145, length=5, dtype="float"),
     FieldSpec("stable_index", start=150, length=5, dtype="float"),
+    # --- Upset / longshot potential ---
+    FieldSpec("upset_index", start=161, length=3, dtype="int"),
+    FieldSpec("hoof_code", start=164, length=2, dtype="str"),
+    FieldSpec("heavy_aptitude_code", start=166, length=1, dtype="int"),
     # --- Equipment ---
     FieldSpec("blinkers", start=171, length=1, dtype="str"),
     # --- Weight / jockey / trainer ---
     FieldSpec("impost_weight", start=184, length=3, dtype="float", scale=0.1),
     FieldSpec("apprentice_class", start=187, length=1, dtype="int"),
-    # --- Codes (5th edition, start=336) ---
+    # --- Codes (5th edition, start=334) ---
     FieldSpec("turf_aptitude_code", start=334, length=1, dtype="str"),
     FieldSpec("dirt_aptitude_code", start=335, length=1, dtype="str"),
     FieldSpec("jockey_code", start=336, length=5, dtype="str"),
     FieldSpec("trainer_code", start=341, length=5, dtype="str"),
     # --- Class / conditions (6th edition) ---
     FieldSpec("class_code", start=358, length=1, dtype="str"),
+    # --- JRDB prediction indices (展開予想系) ---
+    FieldSpec("ten_index_pred", start=359, length=5, dtype="float"),
+    FieldSpec("pace_index_pred", start=364, length=5, dtype="float"),
+    FieldSpec("agari_index_pred", start=369, length=5, dtype="float"),
+    FieldSpec("position_index_pred", start=374, length=5, dtype="float"),
+    FieldSpec("pace_prediction", start=379, length=1, dtype="str"),
     # --- Cancel flag (7th edition) ---
     FieldSpec("cancel_flag", start=403, length=1, dtype="int"),
+    # --- Start / delay ---
+    FieldSpec("start_index", start=520, length=4, dtype="float"),
+    FieldSpec("delay_rate", start=524, length=4, dtype="float"),
+    # --- Longshot ---
+    FieldSpec("longshot_index", start=535, length=3, dtype="int"),
+    # --- Stable rank ---
+    FieldSpec("stable_rank", start=624, length=1, dtype="int"),
 ]

@@ -216,38 +216,38 @@ class KeibaRepository:
             jockey_id = self._resolve_jockey_id(session, rec.get("jockey_code"))
             trainer_id = self._resolve_trainer_id(session, rec.get("trainer_code"))
 
+            _ENTRY_ATTRS = (
+                "blood_registration_number", "jockey_code", "trainer_code",
+                "impost_weight", "base_win_odds", "idm", "jockey_index",
+                "info_index", "training_index", "stable_index", "composite_index",
+                "running_style_code", "distance_aptitude_code",
+                "ten_index_pred", "pace_index_pred", "agari_index_pred",
+                "position_index_pred", "pace_prediction",
+                "improvement_grade", "upset_index", "longshot_index",
+                "heavy_aptitude_code", "hoof_code", "blinkers",
+                "turf_aptitude_code", "dirt_aptitude_code",
+                "start_index", "delay_rate", "stable_rank",
+            )
+
             if existing:
                 existing.horse_id = horse_id or existing.horse_id
                 existing.jockey_id = jockey_id or existing.jockey_id
                 existing.trainer_id = trainer_id or existing.trainer_id
-                for attr in ("blood_registration_number", "jockey_code", "trainer_code",
-                             "impost_weight", "base_win_odds", "idm", "jockey_index",
-                             "info_index", "training_index", "stable_index", "composite_index",
-                             "running_style_code", "distance_aptitude_code"):
+                for attr in _ENTRY_ATTRS:
                     val = rec.get(attr)
                     if val is not None:
                         setattr(existing, attr, val)
             else:
-                session.add(KeibaRaceEntry(
-                    race_id=race.id,
-                    post_position=post_pos,
-                    horse_id=horse_id,
-                    jockey_id=jockey_id,
-                    trainer_id=trainer_id,
-                    blood_registration_number=rec.get("blood_registration_number"),
-                    jockey_code=rec.get("jockey_code"),
-                    trainer_code=rec.get("trainer_code"),
-                    impost_weight=rec.get("impost_weight"),
-                    base_win_odds=rec.get("base_win_odds"),
-                    idm=rec.get("idm"),
-                    jockey_index=rec.get("jockey_index"),
-                    info_index=rec.get("info_index"),
-                    training_index=rec.get("training_index"),
-                    stable_index=rec.get("stable_index"),
-                    composite_index=rec.get("composite_index"),
-                    running_style_code=rec.get("running_style_code"),
-                    distance_aptitude_code=rec.get("distance_aptitude_code"),
-                ))
+                kwargs = {
+                    "race_id": race.id,
+                    "post_position": post_pos,
+                    "horse_id": horse_id,
+                    "jockey_id": jockey_id,
+                    "trainer_id": trainer_id,
+                }
+                for attr in _ENTRY_ATTRS:
+                    kwargs[attr] = rec.get(attr)
+                session.add(KeibaRaceEntry(**kwargs))
                 count += 1
         session.flush()
         return count
@@ -282,32 +282,26 @@ class KeibaRepository:
                 select(KeibaRaceResult).where(KeibaRaceResult.entry_id == entry.id)
             ).scalar_one_or_none()
 
+            _RESULT_ATTRS = (
+                "finish_position", "race_time", "last_3f_time", "first_3f_time",
+                "margin", "corner_1_pos", "corner_2_pos", "corner_3_pos", "corner_4_pos",
+                "confirmed_win_odds", "confirmed_popularity",
+                "jrdb_idm", "base_score", "track_bias", "pace_factor",
+                "late_start_correction", "positioning_correction", "disadvantage_correction",
+                "course_position", "ten_index", "agari_index", "pace_index",
+                "body_weight", "body_weight_change",
+            )
+
             if existing:
-                for attr in ("finish_position", "race_time", "last_3f_time", "first_3f_time",
-                             "margin", "corner_1_pos", "corner_2_pos", "corner_3_pos", "corner_4_pos",
-                             "confirmed_win_odds", "confirmed_popularity", "jrdb_speed_figure",
-                             "body_weight", "body_weight_change"):
+                for attr in _RESULT_ATTRS:
                     val = rec.get(attr)
                     if val is not None:
                         setattr(existing, attr, val)
             else:
-                session.add(KeibaRaceResult(
-                    entry_id=entry.id,
-                    finish_position=rec.get("finish_position"),
-                    race_time=rec.get("race_time"),
-                    last_3f_time=rec.get("last_3f_time"),
-                    first_3f_time=rec.get("first_3f_time"),
-                    margin=rec.get("margin"),
-                    corner_1_pos=rec.get("corner_1_pos"),
-                    corner_2_pos=rec.get("corner_2_pos"),
-                    corner_3_pos=rec.get("corner_3_pos"),
-                    corner_4_pos=rec.get("corner_4_pos"),
-                    confirmed_win_odds=rec.get("confirmed_win_odds"),
-                    confirmed_popularity=rec.get("confirmed_popularity"),
-                    jrdb_speed_figure=rec.get("jrdb_speed_figure"),
-                    body_weight=rec.get("body_weight"),
-                    body_weight_change=rec.get("body_weight_change"),
-                ))
+                kwargs = {"entry_id": entry.id}
+                for attr in _RESULT_ATTRS:
+                    kwargs[attr] = rec.get(attr)
+                session.add(KeibaRaceResult(**kwargs))
                 count += 1
         session.flush()
         return count

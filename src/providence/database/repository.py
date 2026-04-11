@@ -731,14 +731,18 @@ class Repository:
             select(Rider).where(Rider.registration_number == registration_number)
         ).scalar_one_or_none()
 
+        rank_str = rank.value if hasattr(rank, "value") else (str(rank) if rank else None)
+
         if existing:
             if name:
                 existing.name = name
             if generation is not None:
                 existing.generation = generation
+            if rank_str:
+                existing.rank = rank_str
             return existing
 
-        rider = Rider(registration_number=registration_number, name=name, generation=generation)
+        rider = Rider(registration_number=registration_number, name=name, generation=generation, rank=rank_str)
         session.add(rider)
         session.flush()
         return rider
@@ -747,6 +751,8 @@ class Repository:
         existing = session.execute(
             select(Rider).where(Rider.registration_number == profile.registration_number)
         ).scalar_one_or_none()
+
+        rank_str = profile.rank.value if hasattr(profile.rank, "value") and profile.rank else None
 
         if existing:
             existing.name = profile.name
@@ -758,6 +764,8 @@ class Repository:
                 existing.generation = profile.generation
             if profile.home_track is not None:
                 existing.home_track_id = profile.home_track.value
+            if rank_str:
+                existing.rank = rank_str
             return existing
 
         rider = Rider(
@@ -767,6 +775,7 @@ class Repository:
             birth_year=getattr(profile, "birth_year", None),
             generation=profile.generation,
             home_track_id=profile.home_track.value if profile.home_track else None,
+            rank=rank_str,
         )
         session.add(rider)
         session.flush()

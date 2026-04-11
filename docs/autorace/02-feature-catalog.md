@@ -11,11 +11,13 @@
 
 | # | カテゴリ | 実装ファイル | 主な特徴量数 |
 |---|---------|-------------|-------------|
-| 1 | [基本情報](#1-基本情報) | `pipeline.py` | ~13 |
+| 1 | [基本情報](#1-基本情報) | `pipeline.py` | ~14 |
 | 2 | [試走系](#2-試走系) | `trial_run.py` | ~14 |
 | 3 | [選手成績系](#3-選手成績系) | `rider.py` | ~14 |
-| 4 | [レース内文脈](#4-レース内文脈) | `race.py` | ~10 |
+| 4 | [レース内文脈](#4-レース内文脈) | `race.py` | ~13 |
 | 5 | [場・環境系](#5-場環境系) | `track.py` | ~3 |
+| 6 | [前走詳細](#6-前走詳細) | `prev_race.py` | ~36 |
+| 7 | [コンテキスト](#7-コンテキスト) | `context.py` | ~17 |
 
 ---
 
@@ -241,6 +243,72 @@ _prepare_base (ベース整形・カテゴリマップ)
 ### 時系列安全性
 
 全ての選手履歴特徴量は `d < current_date` の条件で過去データのみを使用。`load_history(as_of_date)` で同日リークも防止。
+
+---
+
+## 6. 前走詳細
+
+`prev_race.py` で計算。各選手の直近5走の個別レースデータを抽出。時系列安全（`race_date < current_date` で過去のみ）。
+
+### 6.1 前走個別データ
+
+| 変数名 | 定義 | 型 |
+|--------|------|-----|
+| `finish_position_prev1`〜`prev5` | 前1〜5走の着順 | int |
+| `race_time_prev1`〜`prev5` | 前1〜5走の競走タイム | float |
+| `start_timing_prev1`〜`prev5` | 前1〜5走のスタートタイミング | float |
+| `handicap_prev1`〜`prev5` | 前1〜5走のハンデ | int |
+| `track_id_prev1`〜`prev5` | 前1〜5走のレース場 | categorical |
+| `is_wet_prev1`〜`prev5` | 前1〜5走が湿/重走路か | int (0/1) |
+
+### 6.2 集約指標
+
+| 変数名 | 定義 | 型 |
+|--------|------|-----|
+| `form_score` | 直近5走の重み付き着順平均（0.5指数減衰、最新に高い重み） | float |
+| `ewm_race_time` | 競走タイムの指数加重平均 | float |
+| `ewm_start_timing` | STの指数加重平均 | float |
+| `prev_best_finish` | 直近5走の最高着順 | int |
+| `prev_worst_finish` | 直近5走の最低着順 | int |
+| `prev_win_count` | 直近5走の勝利数 | int |
+| `prev_top3_count` | 直近5走の3着以内数 | int |
+| `prev_best_time` | 直近5走の最速タイム | float |
+| `prev_time_std` | 直近5走のタイム標準偏差 | float |
+| `finish_improvement` | 前走着順 vs その前の平均着順（正=改善） | float |
+
+---
+
+## 7. コンテキスト
+
+`context.py` で計算。エンコーディング後に実行される。
+
+### 7.1 時間・カレンダー
+
+| 変数名 | 定義 | 型 |
+|--------|------|-----|
+| `race_month` | レース月（1-12） | int |
+| `rest_interval_group` | 休養日数グループ（0: <=3日, 1: <=7, 2: <=14, 3: <=30, 4: >30） | int |
+
+### 7.2 ST場内相対
+
+| 変数名 | 定義 | 型 |
+|--------|------|-----|
+| `st_vs_field_avg` | 自分のST10走平均 - フィールド平均ST | float |
+| `st_rank_in_field` | フィールド内ST順位 | int |
+
+### 7.3 前走タイムZスコア
+
+| 変数名 | 定義 | 型 |
+|--------|------|-----|
+| `time_zscore_prev1`〜`prev5` | (前走タイム - EWMタイム) / タイム標準偏差 | float |
+
+### 7.4 交互作用
+
+| 変数名 | 定義 | 型 |
+|--------|------|-----|
+| `temp_x_condition` | 気温 × 走路状態 | float |
+| `humidity_x_condition` | 湿度 × 走路状態 | float |
+| `home_x_track_wr` | ホームトラック × 場別勝率 | float |
 
 ---
 

@@ -124,3 +124,25 @@ def test_allowed_ticket_types_none_allows_all():
     result = run_strategy(_bundle(), _market_odds(), decision_context=_context(), config=config)
     all_types = {bet.ticket_type for bet in (result.recommended_bets or result.candidate_bets)}
     assert len(all_types) > 2
+
+
+def test_max_odds_filters_out_high_price_candidates():
+    config = StrategyConfig(
+        min_confidence=0.0,
+        allowed_ticket_types=frozenset({TicketType.WIN}),
+        max_odds=2.0,
+    )
+    result = run_strategy(_bundle(), _market_odds(), decision_context=_context(), config=config)
+    assert result.skip_reason == "no_positive_ev_candidates"
+    assert result.recommended_bets == []
+
+
+def test_min_odds_filters_out_low_price_candidates():
+    config = StrategyConfig(
+        min_confidence=0.0,
+        allowed_ticket_types=frozenset({TicketType.WIDE}),
+        min_odds=2.0,
+    )
+    result = run_strategy(_bundle(), _market_odds(), decision_context=_context(), config=config)
+    assert result.skip_reason == "no_positive_ev_candidates"
+    assert result.recommended_bets == []

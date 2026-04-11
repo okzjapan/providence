@@ -39,6 +39,7 @@ class Rider(Base):
     birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     home_track_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("tracks.id"), nullable=True)
     generation: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rank: Mapped[str | None] = mapped_column(String, nullable=True)
 
     home_track: Mapped[Track | None] = relationship(back_populates="riders")
     entries: Mapped[list["RaceEntry"]] = relationship(back_populates="rider")

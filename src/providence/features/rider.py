@@ -41,6 +41,16 @@ def _add_group_features(group: pl.DataFrame) -> pl.DataFrame:
     avg_st_30: list[float | None] = []
     st_consistency: list[float | None] = []
 
+    win_rate_all: list[float | None] = []
+    top3_rate_all: list[float | None] = []
+    avg_finish_all: list[float | None] = []
+    recent_vs_career_wr: list[float | None] = []
+    recent_vs_career_finish: list[float | None] = []
+    days_last_win: list[int | None] = []
+    days_last_top3: list[int | None] = []
+    races_since_win: list[int | None] = []
+    accident_rate: list[float | None] = []
+
     finished_history: list[tuple[date, int]] = []
     st_history: list[float] = []
 
@@ -69,6 +79,29 @@ def _add_group_features(group: pl.DataFrame) -> pl.DataFrame:
         avg_st_30.append(_mean_float(st_last_30))
         st_consistency.append(_std_float(st_last_10))
 
+        career_wr = _rate(positions_only, lambda x: x == 1) if positions_only else None
+        career_t3r = _rate(positions_only, lambda x: x <= 3) if positions_only else None
+        career_avg_fin = _mean(positions_only) if positions_only else None
+        win_rate_all.append(career_wr)
+        top3_rate_all.append(career_t3r)
+        avg_finish_all.append(career_avg_fin)
+        wr10 = win_rate_10[-1]
+        recent_vs_career_wr.append(float(wr10 - career_wr) if wr10 is not None and career_wr is not None else None)
+        af10 = avg_finish_10[-1]
+        recent_vs_career_finish.append(float(career_avg_fin - af10) if af10 is not None and career_avg_fin is not None else None)
+
+        days_last_win.append(_days_since_condition(prior_history, current_date, lambda p: p == 1))
+        days_last_top3.append(_days_since_condition(prior_history, current_date, lambda p: p <= 3))
+        races_since_win.append(_races_since_condition(positions_only, lambda p: p == 1))
+
+        accident_codes = group["accident_code"].to_list() if "accident_code" in group.columns else []
+        if accident_codes:
+            prior_accidents = [accident_codes[j] for j in range(len(finished_history)) if j < idx]
+            last30_acc = prior_accidents[-30:]
+            accident_rate.append(float(sum(1 for a in last30_acc if a is not None and a != "") / len(last30_acc)) if last30_acc else None)
+        else:
+            accident_rate.append(None)
+
         position = finish_positions[idx]
         if position is not None and position >= 1:
             finished_history.append((current_date, int(position)))
@@ -92,6 +125,15 @@ def _add_group_features(group: pl.DataFrame) -> pl.DataFrame:
         pl.Series("avg_start_timing_10", avg_st_10),
         pl.Series("avg_start_timing_30", avg_st_30),
         pl.Series("start_timing_consistency", st_consistency),
+        pl.Series("win_rate_all", win_rate_all),
+        pl.Series("top3_rate_all", top3_rate_all),
+        pl.Series("avg_finish_all", avg_finish_all),
+        pl.Series("recent_vs_career_wr", recent_vs_career_wr),
+        pl.Series("recent_vs_career_finish", recent_vs_career_finish),
+        pl.Series("days_since_last_win", days_last_win),
+        pl.Series("days_since_last_top3", days_last_top3),
+        pl.Series("races_since_last_win", races_since_win),
+        pl.Series("accident_rate_30", accident_rate),
     )
 
 
@@ -132,3 +174,17 @@ def _finish_trend(values: Sequence[int]) -> float | None:
     y = np.array(values, dtype=float)
     slope = np.polyfit(x, y, 1)[0]
     return float(-slope)
+
+
+def _days_since_condition(history: list[tuple[date, int]], current: date, pred) -> int | None:
+    for d, p in reversed(history):
+        if pred(p):
+            return (current - d).days
+    return None
+
+
+def _races_since_condition(positions: list[int], pred) -> int | None:
+    for i, p in enumerate(reversed(positions)):
+        if pred(p):
+            return i
+    return len(positions) if positions else None

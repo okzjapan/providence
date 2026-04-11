@@ -51,6 +51,11 @@ notebook = [
 [project.scripts]
 providence = "providence.cli.app:app"
 
+[dependency-groups]
+dev = [
+    "playwright>=1.58.0",
+]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"

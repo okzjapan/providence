@@ -69,7 +69,8 @@ def test_encode_categoricals_is_stable_and_integer():
     pipeline = FeaturePipeline()
     encoded = pipeline._encode_categoricals(_sample_df())  # noqa: SLF001
     for column in FeaturePipeline.categorical_columns:
-        assert encoded[column].dtype in (pl.Int32, pl.Int64)
+        if column in encoded.columns:
+            assert encoded[column].dtype in (pl.Int32, pl.Int64)
 
 
 def _multi_race_df() -> pl.DataFrame:

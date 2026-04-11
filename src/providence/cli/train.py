@@ -145,7 +145,7 @@ def _train_single(
     import numpy as np
     import sklearn
 
-    from providence.probability.calibration import TemperatureScaler
+    from providence.probability.calibration import IsotonicCalibrator, TemperatureScaler
 
     params = trainer.optimize_hyperparams(splits["train"], splits["val"], n_trials=n_trials) if optimize else None
     artifacts = trainer.train_lambdarank(splits["train"], splits["val"], params=params)
@@ -159,6 +159,14 @@ def _train_single(
         [scores for _, scores, _ in val_scores],
         [winner for _, _, winner in val_scores],
         n_trials=max(10, min(n_trials, 50)),
+    )
+
+    console.print("  Fitting isotonic calibrator...")
+    isotonic = IsotonicCalibrator()
+    isotonic.fit(
+        [scores for _, scores, _ in val_scores],
+        [winner for _, _, winner in val_scores],
+        temperature=scaler.temperature,
     )
 
     metrics = evaluator.evaluate(artifacts.model, splits["test"], temperature=scaler.temperature)
@@ -192,8 +200,10 @@ def _train_single(
         },
         "feature_cache": str(Path(cache_path).name),
     }
+    metadata["calibration"] = "isotonic"
     version = store.save(artifacts.model, metadata)
     version_dir = store.version_dir(version)
+    isotonic.save(version_dir / "isotonic_calibrator.pkl")
     importance.write_csv(version_dir / "feature_importance.csv")
     (version_dir / "feature_stats.json").write_text(_json_dump(evaluator.feature_stats(features, artifacts.feature_columns)))
     shap_importance.write_csv(version_dir / "shap_importance.csv")
@@ -218,37 +228,63 @@ def _train_ensemble(
     import numpy as np
     import sklearn
 
-    from providence.model.ensemble import DEFAULT_WEIGHTS
+    from providence.model.ensemble import DEFAULT_WEIGHTS, combine_race_scores
+    from providence.probability.calibration import IsotonicCalibrator
+    from providence.probability.plackett_luce import compute_all_ticket_probs_from_strengths
 
-    console.print("[bold]Training 4-model ensemble...[/bold]")
+    console.print("[bold]Training 6-model ensemble (V012)...[/bold]")
 
-    console.print("  [1/4] LambdaRank...")
+    console.print("  [1/6] LambdaRank...")
     rank_art = trainer.train_lambdarank(splits["train"], splits["val"])
-    console.print("  [2/4] Binary top-2...")
+    console.print("  [2/6] XE-NDCG...")
+    xendcg_art = trainer.train_xendcg(splits["train"], splits["val"])
+    console.print("  [3/6] Binary top-2...")
     top2_art = trainer.train_binary_top2(splits["train"], splits["val"])
-    console.print("  [3/4] Binary win...")
+    console.print("  [4/6] Focal Value (top-2)...")
+    focal_art = trainer.train_focal_value(splits["train"], splits["val"])
+    console.print("  [5/6] Binary win...")
     win_art = trainer.train_binary_win(splits["train"], splits["val"])
-    console.print("  [4/4] Huber regression...")
+    console.print("  [6/6] Huber regression...")
     huber_art = trainer.train_huber(splits["train"], splits["val"])
 
     models = {
         "lambdarank": rank_art.model,
+        "xendcg": xendcg_art.model,
         "binary_top2": top2_art.model,
+        "focal_value": focal_art.model,
         "binary_win": win_art.model,
         "huber": huber_art.model,
     }
     weights = dict(DEFAULT_WEIGHTS)
 
-    metrics = evaluator.evaluate(rank_art.model, splits["test"], temperature=1.0)
+    console.print("  Fitting isotonic calibrator on ensemble...")
+    val_scores, val_top2_probs, val_exacta_targets = _ensemble_scores_per_race(
+        models, splits["val"], rank_art.feature_columns, trainer.pipeline
+    )
+    isotonic = IsotonicCalibrator()
+    if val_scores:
+        isotonic.fit(
+            [scores for _, scores, _ in val_scores],
+            [winner for _, _, winner in val_scores],
+            temperature=1.0,
+        )
+
+    pair_blend_alpha = _choose_pair_blend_alpha(val_scores, val_top2_probs, val_exacta_targets, isotonic)
+    metrics = _evaluate_ensemble(models, splits["test"], rank_art.feature_columns, trainer.pipeline, isotonic, pair_blend_alpha)
     importance = evaluator.feature_importance(rank_art.model)
     shap_importance = evaluator.shap_analysis(rank_art.model, splits["test"], n_samples=shap_samples)
     gate = _gate_result(metrics)
     compare_result = _compare_with_existing(store, compare_with, metrics) if compare_with else None
 
     metadata = {
+        "model_type": "ensemble",
+        "ensemble_keys": list(models.keys()),
+        "ensemble_weights": weights,
         "params": {
             "lambdarank": rank_art.best_params,
+            "xendcg": xendcg_art.best_params,
             "binary_top2": top2_art.best_params,
+            "focal_value": focal_art.best_params,
             "binary_win": win_art.best_params,
             "huber": huber_art.best_params,
         },
@@ -257,6 +293,8 @@ def _train_ensemble(
         "gate": gate,
         "compare_with": compare_result,
         "feature_columns": rank_art.feature_columns,
+        "calibration_input": "ensemble_combined",
+        "pair_blend_alpha": pair_blend_alpha,
         "random_seed": trainer.random_seed,
         "description": description,
         "git_hash": _get_git_hash(),
@@ -275,13 +313,17 @@ def _train_ensemble(
         "feature_cache": str(Path(cache_path).name),
     }
 
+    metadata["calibration"] = "isotonic" if isotonic.fitted else "none"
     version = store.save_ensemble(models, weights, metadata)
     version_dir = store.version_dir(version)
+    if isotonic.fitted:
+        isotonic.save(version_dir / "isotonic_calibrator.pkl")
     importance.write_csv(version_dir / "feature_importance.csv")
     (version_dir / "feature_stats.json").write_text(_json_dump(evaluator.feature_stats(features, rank_art.feature_columns)))
     shap_importance.write_csv(version_dir / "shap_importance.csv")
 
     console.print(f"  Ensemble weights: {weights}")
+    console.print(f"  Pair blend alpha: {pair_blend_alpha}")
     return version, version_dir, metrics, gate, compare_result, metadata
 
 
@@ -291,6 +333,144 @@ def _split_dict(split) -> dict:
         "train": [split.train_start.isoformat(), split.train_end.isoformat()],
         "val": [split.val_start.isoformat(), split.val_end.isoformat()],
         "test": [split.test_start.isoformat(), split.test_end.isoformat()],
+    }
+
+
+def _ensemble_scores_per_race(models, df, feature_columns, pipeline):
+    import numpy as np
+    import pandas as pd
+    import polars as pl
+
+    from providence.features.pipeline import FeaturePipeline
+    from providence.model.evaluator import _winner_index
+    from providence.model.ensemble import combine_race_scores
+    from providence.model.predictor import _build_X
+
+    ordered = df.sort(["race_date", "race_number", "race_id", "post_position"])
+    cat_cols = getattr(pipeline, "categorical_columns", FeaturePipeline.categorical_columns)
+    groups = ordered.partition_by("race_id", maintain_order=True)
+    score_rows = []
+    top2_rows = []
+    exacta_targets = []
+
+    for group in groups:
+        X = _build_X(group, feature_columns, categorical_columns=cat_cols)
+        raw_outputs = {key: np.asarray(model.predict(X), dtype=float) for key, model in models.items()}
+        scores = combine_race_scores(raw_outputs)
+        finish_positions = group["finish_position"].to_list()
+        winner_idx = _winner_index(finish_positions)
+        if winner_idx is None:
+            continue
+        runner_up_idx = None
+        for idx, pos in enumerate(finish_positions):
+            if pos == 2:
+                runner_up_idx = idx
+                break
+        score_rows.append((group["race_id"][0], scores, winner_idx))
+        top2 = raw_outputs.get("binary_top2")
+        if top2 is not None:
+            top2 = np.clip(np.asarray(top2, dtype=float), 1e-8, 1.0 - 1e-8)
+            top2 = top2 / top2.sum() if top2.sum() > 0 else top2
+        top2_rows.append(top2)
+        exacta_targets.append((winner_idx, runner_up_idx))
+    return score_rows, top2_rows, exacta_targets
+
+
+def _choose_pair_blend_alpha(score_rows, top2_rows, exacta_targets, isotonic) -> float:
+    import numpy as np
+
+    from providence.probability.plackett_luce import compute_all_ticket_probs_from_strengths, compute_win_probs
+
+    alphas = [0.0, 0.1, 0.2, 0.3]
+    if not score_rows or not top2_rows:
+        return 0.0
+
+    best_alpha = 0.0
+    best_loss = float("inf")
+    for alpha in alphas:
+        losses = []
+        for (race_id, scores, winner_idx), top2, target in zip(score_rows, top2_rows, exacta_targets, strict=False):
+            if top2 is None:
+                continue
+            if target[1] is None:
+                continue
+            raw_win_probs = compute_win_probs(scores, 1.0)
+            calibrated = isotonic.calibrate(raw_win_probs) if isotonic.fitted else raw_win_probs
+            main_probs = compute_all_ticket_probs_from_strengths(calibrated)
+            aux_probs = compute_all_ticket_probs_from_strengths(top2)
+            # only exacta log loss on actual 1-2 order
+            exacta = {
+                combo: (1.0 - alpha) * prob + alpha * aux_probs["exacta"][combo]
+                for combo, prob in main_probs["exacta"].items()
+            }
+            target_combo = target
+            p = max(float(exacta[target_combo]), 1e-12)
+            losses.append(-np.log(p))
+        if losses:
+            loss = float(np.mean(losses))
+            if loss < best_loss:
+                best_loss = loss
+                best_alpha = alpha
+    return best_alpha
+
+
+def _evaluate_ensemble(models, test_df, feature_columns, pipeline, isotonic, pair_blend_alpha):
+    import numpy as np
+    import polars as pl
+    from sklearn.metrics import brier_score_loss
+
+    from providence.features.pipeline import FeaturePipeline
+    from providence.model.ensemble import combine_race_scores
+    from providence.model.evaluator import _uniform_brier_baseline, _winner_index
+    from providence.model.predictor import _blend_pair_ticket_probs, _build_X
+    from providence.probability.plackett_luce import compute_all_ticket_probs_from_strengths, compute_win_probs
+
+    ordered = test_df.sort(["race_date", "race_number", "race_id", "post_position"])
+    cat_cols = getattr(pipeline, "categorical_columns", FeaturePipeline.categorical_columns)
+    groups = ordered.partition_by("race_id", maintain_order=True)
+
+    win_hits = 0
+    top3_overlap_total = 0.0
+    win_prob_preds = []
+    win_labels = []
+    evaluated_race_count = 0
+
+    for group in groups:
+        X = _build_X(group, feature_columns, categorical_columns=cat_cols)
+        raw_outputs = {key: np.asarray(model.predict(X), dtype=float) for key, model in models.items()}
+        scores = combine_race_scores(raw_outputs)
+        finish_positions = group["finish_position"].to_list()
+        winner_idx = _winner_index(finish_positions)
+        if winner_idx is None:
+            continue
+        evaluated_race_count += 1
+
+        raw_win_probs = compute_win_probs(scores, 1.0)
+        calibrated = isotonic.calibrate(raw_win_probs) if isotonic.fitted else raw_win_probs
+        ticket_probs = compute_all_ticket_probs_from_strengths(calibrated)
+        top2 = raw_outputs.get("binary_top2")
+        if top2 is not None:
+            top2 = np.clip(np.asarray(top2, dtype=float), 1e-8, 1.0 - 1e-8)
+            top2 = top2 / top2.sum() if top2.sum() > 0 else top2
+        ticket_probs = _blend_pair_ticket_probs(ticket_probs, top2, pair_blend_alpha)
+
+        predicted_order = np.argsort(-np.asarray(list(ticket_probs["win"].values()), dtype=float))
+        if predicted_order[0] == winner_idx:
+            win_hits += 1
+        actual_top3 = {idx for idx, pos in enumerate(finish_positions) if pos is not None and 1 <= pos <= 3}
+        predicted_top3 = set(predicted_order[: min(3, len(predicted_order))])
+        top3_overlap_total += len(actual_top3 & predicted_top3) / 3.0
+        for idx, prob in ticket_probs["win"].items():
+            win_prob_preds.append(float(prob))
+            win_labels.append(1 if idx == winner_idx else 0)
+
+    baseline = _uniform_brier_baseline(groups)
+    denom = evaluated_race_count or 1
+    return {
+        "win_accuracy": win_hits / denom,
+        "top3_overlap": top3_overlap_total / denom,
+        "brier_score": brier_score_loss(win_labels, win_prob_preds) if win_labels else float("nan"),
+        "brier_baseline": baseline,
     }
 
 
@@ -332,7 +512,7 @@ def _run_standardized_backtest(
             evaluation_mode=EvaluationMode.FIXED,
             model_version=version,
             config=config,
-            use_final_odds=True,
+            use_final_odds=False,
         )
     except Exception as exc:
         console.print(f"[yellow]  バックテスト実行エラー: {exc}[/yellow]")
@@ -345,14 +525,20 @@ def _run_standardized_backtest(
     if summary.profit_evaluated_races == 0:
         return None
 
+    bet_races = sum(1 for r in results if r.total_stake > 0)
+    hit_in_bet = sum(1 for r in results if r.total_stake > 0 and any(s.hit for s in r.settled_recommendations))
+
     return {
         "total_races": summary.total_races,
         "profit_evaluated_races": summary.profit_evaluated_races,
+        "bet_races": bet_races,
+        "hit_in_bet_races": hit_in_bet,
         "total_stake": summary.total_stake,
         "total_payout": summary.total_payout,
         "total_profit": summary.total_profit,
         "roi": summary.roi,
         "hit_rate": summary.hit_rate,
+        "bet_hit_rate": (hit_in_bet / bet_races) if bet_races > 0 else 0.0,
         "max_drawdown": summary.max_drawdown,
         "sharpe_ratio": summary.sharpe_ratio,
         "config": {
@@ -366,7 +552,7 @@ def _run_standardized_backtest(
             "start": test_start.isoformat(),
             "end": test_end.isoformat(),
         },
-        "use_final_odds": True,
+        "use_final_odds": False,
     }
 
 

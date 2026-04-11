@@ -5,13 +5,15 @@ from __future__ import annotations
 import numpy as np
 
 DEFAULT_WEIGHTS = {
-    "lambdarank": 0.40,
-    "binary_top2": 0.30,
-    "binary_win": 0.15,
-    "huber": 0.15,
+    "lambdarank": 0.30,
+    "xendcg": 0.15,
+    "binary_top2": 0.20,
+    "focal_value": 0.15,
+    "binary_win": 0.10,
+    "huber": 0.10,
 }
 
-MODEL_KEYS = ("lambdarank", "binary_top2", "binary_win", "huber")
+MODEL_KEYS = ("lambdarank", "xendcg", "binary_top2", "focal_value", "binary_win", "huber")
 
 
 def combine_race_scores(
@@ -67,6 +69,12 @@ def _to_race_probabilities(raw: np.ndarray, model_key: str) -> np.ndarray:
     arr = np.asarray(raw, dtype=float)
     if model_key in ("binary_top2", "binary_win"):
         clipped = np.clip(arr, 1e-8, 1.0 - 1e-8)
+        total = clipped.sum()
+        return clipped / total if total > 0 else np.ones_like(clipped) / len(clipped)
+    if model_key == "focal_value":
+        from scipy.special import expit
+        probs = expit(arr)
+        clipped = np.clip(probs, 1e-8, 1.0 - 1e-8)
         total = clipped.sum()
         return clipped / total if total > 0 else np.ones_like(clipped) / len(clipped)
     return _softmax(arr)

@@ -10,7 +10,7 @@ import polars as pl
 class KeibaFeaturePipeline:
     """Compute train/predict features for JRA horse racing."""
 
-    categorical_columns: list[str] = ["class_code"]
+    categorical_columns: list[str] = ["class_code", "pace_prediction"]
 
     categorical_maps = {
         "class_code": {
@@ -20,6 +20,12 @@ class KeibaFeaturePipeline:
             "A1": 3,
             "A3": 3,
             "OP": 3,
+            "__NULL__": -1,
+        },
+        "pace_prediction": {
+            "H": 0,
+            "M": 1,
+            "S": 2,
             "__NULL__": -1,
         },
     }
@@ -52,6 +58,24 @@ class KeibaFeaturePipeline:
         "corner_4_pos",
         "confirmed_win_odds",
         "confirmed_popularity",
+        # Within-race Z-values (used for rolling history only, not direct features)
+        "z_race_time",
+        "z_last_3f",
+        "z_first_3f",
+        "z_idm_post",
+        "z_agari_actual",
+        # Post-race JRDB analysis (used for rolling history only, not direct features)
+        "jrdb_idm_post",
+        "base_score",
+        "track_bias",
+        "pace_factor",
+        "late_start_correction",
+        "positioning_correction",
+        "disadvantage_correction",
+        "course_position",
+        "ten_index_actual",
+        "agari_index_actual",
+        "pace_index_actual",
         # Odds (excluded from model input; used only for post-prediction EV calculation)
         "base_win_odds",
         # Raw columns (parsed versions are used instead)
@@ -71,12 +95,15 @@ class KeibaFeaturePipeline:
         from providence.keiba.features.pace import add_pace_features
         from providence.keiba.features.performance import add_performance_features
         from providence.keiba.features.relations import add_relation_features
+        from providence.keiba.features.z_normalize import add_race_z_values
 
+        df = add_race_z_values(df)
         df = add_performance_features(df)
         df = add_horse_features(df)
         df = add_pace_features(df)
         df = add_relation_features(df)
         df = add_field_strength_features(df)
+        df = self._add_interaction_features(df)
         df = self._encode_categoricals(df)
         self.assert_no_leakage(df)
         return df
@@ -125,6 +152,41 @@ class KeibaFeaturePipeline:
     @staticmethod
     def _prepare_base(df: pl.DataFrame) -> pl.DataFrame:
         return df.sort(["race_date", "race_number", "race_id", "post_position"])
+
+    @staticmethod
+    def _add_interaction_features(df: pl.DataFrame) -> pl.DataFrame:
+        """Add interaction and derived features that require no history."""
+        exprs = []
+
+        if "distance" in df.columns:
+            exprs.append(
+                pl.when(pl.col("distance") <= 1400).then(1)
+                .when(pl.col("distance") <= 1600).then(2)
+                .when(pl.col("distance") <= 2200).then(3)
+                .otherwise(4)
+                .alias("distance_category_num")
+            )
+
+        if "post_position" in df.columns and "field_size" in df.columns:
+            exprs.append(
+                (pl.col("post_position") / pl.col("field_size").cast(pl.Float64))
+                .alias("post_position_ratio")
+            )
+
+        if "days_since_last_race" in df.columns:
+            exprs.append(
+                pl.when(pl.col("days_since_last_race").is_null()).then(0)
+                .when(pl.col("days_since_last_race") <= 14).then(1)
+                .when(pl.col("days_since_last_race") <= 35).then(2)
+                .when(pl.col("days_since_last_race") <= 90).then(3)
+                .otherwise(4)
+                .alias("rest_category")
+            )
+
+        if exprs:
+            df = df.with_columns(exprs)
+
+        return df
 
     @classmethod
     def feature_columns(cls, df: pl.DataFrame) -> list[str]:

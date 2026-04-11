@@ -38,12 +38,20 @@ FIELDS: list[FieldSpec] = [
     # --- Odds ---
     FieldSpec("confirmed_win_odds", start=175, length=6, dtype="float"),
     FieldSpec("confirmed_popularity", start=181, length=2, dtype="int"),
-    # --- JRDB analysis ---
+    # --- JRDB post-race analysis ---
     FieldSpec("jrdb_idm", start=183, length=3, dtype="int"),
+    FieldSpec("base_score", start=186, length=3, dtype="int"),
+    FieldSpec("track_bias", start=189, length=3, dtype="int"),
+    FieldSpec("pace_factor", start=192, length=3, dtype="int"),
+    FieldSpec("late_start_correction", start=195, length=3, dtype="int"),
+    FieldSpec("positioning_correction", start=198, length=3, dtype="int"),
+    FieldSpec("disadvantage_correction", start=201, length=3, dtype="int"),
+    FieldSpec("course_position", start=216, length=1, dtype="int"),  # 1=最内 to 5=大外
+    # --- Speed/Pace indices (actual, post-race) ---
     FieldSpec("ten_index", start=224, length=5, dtype="float"),
     FieldSpec("agari_index", start=229, length=5, dtype="float"),
     FieldSpec("pace_index", start=234, length=5, dtype="float"),
-    FieldSpec("winner_or_second_margin", start=256, length=3, dtype="float", scale=0.1),
+    FieldSpec("margin", start=256, length=3, dtype="float", scale=0.1),
     FieldSpec("first_3f_time", start=259, length=3, dtype="float", scale=0.1),
     FieldSpec("last_3f_time", start=262, length=3, dtype="float", scale=0.1),
     # --- 2nd edition additions ---

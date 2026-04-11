@@ -9,6 +9,8 @@ from pathlib import Path
 
 import polars as pl
 
+from providence.features.context import add_context_features
+from providence.features.prev_race import add_prev_race_features
 from providence.features.race import add_race_features
 from providence.features.rider import add_rider_features
 from providence.features.track import add_track_features
@@ -18,11 +20,16 @@ from providence.features.trial_run import add_trial_run_features
 class FeaturePipeline:
     """Compute train/predict features with temporal safety."""
 
-    categorical_columns = ["track_id", "track_condition", "weather", "grade"]
+    categorical_columns = [
+        "track_id", "track_condition", "weather", "grade", "rider_rank",
+        "track_id_prev1", "track_id_prev2", "track_id_prev3",
+        "track_id_prev4", "track_id_prev5",
+    ]
     categorical_maps = {
         "track_condition": {"良": 0, "湿": 1, "重": 2, "斑": 3, "__NULL__": 4},
         "weather": {"晴": 0, "曇": 1, "雨": 2, "小雨": 3, "小雪": 4, "雪": 5, "other": 6, "__NULL__": 7},
         "grade": {"普通": 0, "GII": 1, "GI": 2, "SG": 3, "__NULL__": 4},
+        "rider_rank": {"B": 0, "A": 1, "S": 2, "__NULL__": 3},
     }
     excluded_feature_columns = {
         "row_key",
@@ -41,6 +48,8 @@ class FeaturePipeline:
         "race_score",
         "birth_year",
         "home_track_id",
+        "win_odds",
+        "win_odds_rank",
     }
 
     def build_features(self, raw_df: pl.DataFrame) -> pl.DataFrame:
@@ -50,9 +59,11 @@ class FeaturePipeline:
         df = self._prepare_base(raw_df)
         df = add_trial_run_features(df)
         df = add_rider_features(df)
+        df = add_prev_race_features(df)
         df = add_race_features(df)
         df = add_track_features(df)
         df = self._encode_categoricals(df)
+        df = add_context_features(df)
         self.assert_no_leakage(df)
         return df
 
@@ -136,13 +147,12 @@ class FeaturePipeline:
     def feature_columns(cls, df: pl.DataFrame) -> list[str]:
         return [c for c in df.columns if c not in cls.excluded_feature_columns]
 
-    @staticmethod
-    def _encode_categoricals(df: pl.DataFrame) -> pl.DataFrame:
+    @classmethod
+    def _encode_categoricals(cls, df: pl.DataFrame) -> pl.DataFrame:
         out = df
-        # track_id is already stable integer-coded
-        for column in ("track_condition", "weather", "grade"):
+        for column in ("track_condition", "weather", "grade", "rider_rank"):
             if column in out.columns:
-                mapping = FeaturePipeline.categorical_maps[column]
+                mapping = cls.categorical_maps[column]
                 out = out.with_columns(
                     pl.col(column)
                     .cast(pl.Utf8)
@@ -152,6 +162,11 @@ class FeaturePipeline:
                     .alias(column)
                 )
         return out
+
+    @classmethod
+    def effective_categorical_columns(cls, df: pl.DataFrame) -> list[str]:
+        """Return only categorical columns that exist in the DataFrame."""
+        return [c for c in cls.categorical_columns if c in df.columns]
 
     @staticmethod
     def assert_no_leakage(df: pl.DataFrame) -> None:

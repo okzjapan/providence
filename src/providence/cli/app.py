@@ -36,17 +36,19 @@ def main() -> None:
 
 
 # Register sub-command groups
-from providence.cli.db import db_app  # noqa: E402
+from providence.cli.autobet import autobet_app  # noqa: E402
 from providence.cli.backtest import backtest_command  # noqa: E402
+from providence.cli.db import db_app  # noqa: E402
 from providence.cli.model import model_app  # noqa: E402
+from providence.cli.notify import notify_app  # noqa: E402
 from providence.cli.predict import predict_command  # noqa: E402
 from providence.cli.replay import replay_app  # noqa: E402
 from providence.cli.report import report_command  # noqa: E402
 from providence.cli.retrain import retrain_command  # noqa: E402
 from providence.cli.scrape import scrape_app  # noqa: E402
-from providence.cli.notify import notify_app  # noqa: E402
 from providence.cli.train import train_command  # noqa: E402
 
+app.add_typer(autobet_app, name="autobet", help="Automated prediction + Slack notification")
 app.add_typer(notify_app, name="notify", help="Notification batch commands")
 app.add_typer(scrape_app, name="scrape", help="Data collection commands")
 app.add_typer(db_app, name="db", help="Database management commands")
