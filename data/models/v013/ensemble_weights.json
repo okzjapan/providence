@@ -1,0 +1,8 @@
+{
+  "lambdarank": 0.3,
+  "xendcg": 0.15,
+  "binary_top2": 0.2,
+  "focal_value": 0.15,
+  "binary_win": 0.1,
+  "huber": 0.1
+}

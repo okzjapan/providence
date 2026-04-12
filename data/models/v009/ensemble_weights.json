@@ -1,0 +1,6 @@
+{
+  "lambdarank": 0.4,
+  "binary_top2": 0.3,
+  "binary_win": 0.15,
+  "huber": 0.15
+}

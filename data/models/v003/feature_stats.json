@@ -1,0 +1,218 @@
+{
+  "track_id": {
+    "null_count": 0,
+    "n_unique": 5,
+    "mean": 3.931055011817194,
+    "std": 1.4342336457187463
+  },
+  "track_condition": {
+    "null_count": 0,
+    "n_unique": 4,
+    "mean": 0.5995423751304554,
+    "std": 1.1759477023348626
+  },
+  "weather": {
+    "null_count": 0,
+    "n_unique": 7,
+    "mean": 0.7283587549447514,
+    "std": 1.2095587991801775
+  },
+  "temperature": {
+    "null_count": 3872,
+    "n_unique": 43,
+    "mean": 18.645907207983736,
+    "std": 9.120106773353028
+  },
+  "humidity": {
+    "null_count": 3708,
+    "n_unique": 91,
+    "mean": 60.0514315415287,
+    "std": 19.24381125382727
+  },
+  "track_temperature": {
+    "null_count": 3764,
+    "n_unique": 67,
+    "mean": 26.974846128397807,
+    "std": 14.265392562716826
+  },
+  "grade": {
+    "null_count": 0,
+    "n_unique": 1,
+    "mean": 0.0,
+    "std": 0.0
+  },
+  "distance": {
+    "null_count": 0,
+    "n_unique": 1,
+    "mean": 3100.0,
+    "std": 0.0
+  },
+  "post_position": {
+    "null_count": 0,
+    "n_unique": 8,
+    "mean": 4.225265483393167,
+    "std": 2.1662063747900264
+  },
+  "handicap_meters": {
+    "null_count": 0,
+    "n_unique": 10,
+    "mean": 17.62802557821763,
+    "std": 14.747795914449709
+  },
+  "trial_time": {
+    "null_count": 3223,
+    "n_unique": 105,
+    "mean": 3.4193458825578347,
+    "std": 0.13191528519510884
+  },
+  "trial_deviation": {
+    "null_count": 0,
+    "n_unique": 166,
+    "mean": 0.08892510875763453,
+    "std": 0.01388218833744075
+  },
+  "generation": {
+    "null_count": 0,
+    "n_unique": 34,
+    "mean": 26.387123382981088,
+    "std": 5.961970818133369
+  },
+  "trial_time_rank": {
+    "null_count": 3223,
+    "n_unique": 9,
+    "mean": 3.352083393805695,
+    "std": 1.7161967122935928
+  },
+  "field_avg_trial": {
+    "null_count": 2490,
+    "n_unique": 1606,
+    "mean": 3.4193990733670843,
+    "std": 0.12667571371574796
+  },
+  "field_trial_std": {
+    "null_count": 2490,
+    "n_unique": 26796,
+    "mean": 0.03675473575572722,
+    "std": 0.015383113159158216
+  },
+  "trial_time_diff_from_best": {
+    "null_count": 3223,
+    "n_unique": 100,
+    "mean": 0.04696819395663409,
+    "std": 0.041859486064172335
+  },
+  "avg_trial_time_30d": {
+    "null_count": 1100,
+    "n_unique": 11837,
+    "mean": 3.419251448811157,
+    "std": 0.06102661535672916
+  },
+  "avg_trial_time_90d": {
+    "null_count": 624,
+    "n_unique": 48224,
+    "mean": 3.419323578642754,
+    "std": 0.050086199381900204
+  },
+  "trial_time_trend": {
+    "null_count": 983,
+    "n_unique": 5154,
+    "mean": -4.060493507228948e-05,
+    "std": 0.04068212501857138
+  },
+  "trial_vs_avg_90d": {
+    "null_count": 3773,
+    "n_unique": 77222,
+    "mean": 1.1992806569676574e-05,
+    "std": 0.12766993889606681
+  },
+  "win_rate_10": {
+    "null_count": 526,
+    "n_unique": 34,
+    "mean": 0.13540920760967098,
+    "std": 0.14279194518057117
+  },
+  "top2_rate_10": {
+    "null_count": 526,
+    "n_unique": 34,
+    "mean": 0.27057584846817917,
+    "std": 0.18834020568202184
+  },
+  "top3_rate_10": {
+    "null_count": 526,
+    "n_unique": 34,
+    "mean": 0.40588725171053913,
+    "std": 0.21196107806198264
+  },
+  "win_rate_30": {
+    "null_count": 526,
+    "n_unique": 235,
+    "mean": 0.13560217692889537,
+    "std": 0.11035191758413505
+  },
+  "top3_rate_30": {
+    "null_count": 526,
+    "n_unique": 270,
+    "mean": 0.40561206357057755,
+    "std": 0.16530451000346194
+  },
+  "avg_finish_10": {
+    "null_count": 526,
+    "n_unique": 225,
+    "mean": 4.246075829504171,
+    "std": 1.034823160469211
+  },
+  "avg_finish_30": {
+    "null_count": 526,
+    "n_unique": 1487,
+    "mean": 4.249176989107124,
+    "std": 0.8415095474860645
+  },
+  "momentum": {
+    "null_count": 979,
+    "n_unique": 794,
+    "mean": -0.0002634496062650889,
+    "std": 0.6610163995584253
+  },
+  "days_since_last_race": {
+    "null_count": 526,
+    "n_unique": 157,
+    "mean": 2.716034566392986,
+    "std": 5.880652506643064
+  },
+  "total_races": {
+    "null_count": 0,
+    "n_unique": 943,
+    "mean": 349.88072344897085,
+    "std": 217.94064800324983
+  },
+  "handicap_rank": {
+    "null_count": 0,
+    "n_unique": 7,
+    "mean": 2.4953538164694744,
+    "std": 1.2270483437407727
+  },
+  "field_size": {
+    "null_count": 0,
+    "n_unique": 4,
+    "mean": 7.450530966786333,
+    "std": 0.6705955402083921
+  },
+  "handicap_vs_trial": {
+    "null_count": 3223,
+    "n_unique": 15,
+    "mean": 2320399372.072904,
+    "std": 2140514607.6816318
+  },
+  "rider_track_win_rate": {
+    "null_count": 11054,
+    "n_unique": 20542,
+    "mean": 0.13810988085290055,
+    "std": 0.09516372181970002
+  },
+  "rider_wet_win_rate": {
+    "null_count": 18408,
+    "n_unique": 2333,
+    "mean": 0.1370510297099405,
+    "std": 0.11943450972057286
+  }
+}

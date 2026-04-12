@@ -1,0 +1,134 @@
+{
+  "model_type": "lambdarank",
+  "params": {
+    "objective": "lambdarank",
+    "metric": "ndcg",
+    "ndcg_eval_at": [
+      1,
+      3
+    ],
+    "learning_rate": 0.08241327346606417,
+    "num_leaves": 57,
+    "min_data_in_leaf": 180,
+    "feature_fraction": 0.9142519937054244,
+    "bagging_fraction": 0.7914269822499028,
+    "bagging_freq": 1,
+    "lambda_l1": 4.210417743517707,
+    "lambda_l2": 5.0949088487506895,
+    "verbosity": -1,
+    "seed": 42
+  },
+  "temperature": 0.8495122483629085,
+  "metrics": {
+    "win_accuracy": 0.44746436857805766,
+    "top3_overlap": 0.6662247265495629,
+    "brier_score": 0.09166981411056543,
+    "brier_baseline": 0.11628302748396414
+  },
+  "gate": {
+    "passed": true,
+    "checks": {
+      "win_accuracy": true,
+      "top3_overlap": true,
+      "brier_score": true
+    }
+  },
+  "compare_with": {
+    "version": "v003",
+    "comparison": {
+      "win_accuracy": {
+        "old": 0.45311638168781027,
+        "new": 0.44746436857805766,
+        "delta": -0.005652013109752607
+      },
+      "top3_overlap": {
+        "old": 0.6688729545872402,
+        "new": 0.6662247265495629,
+        "delta": -0.0026482280376772804
+      },
+      "brier_score": {
+        "old": 0.09102161771622261,
+        "new": 0.09166981411056543,
+        "delta": 0.0006481963943428259
+      }
+    }
+  },
+  "feature_columns": [
+    "track_id",
+    "track_condition",
+    "weather",
+    "temperature",
+    "humidity",
+    "track_temperature",
+    "grade",
+    "distance",
+    "post_position",
+    "handicap_meters",
+    "trial_time",
+    "trial_deviation",
+    "generation",
+    "trial_time_rank",
+    "field_avg_trial",
+    "field_trial_std",
+    "trial_time_diff_from_best",
+    "avg_trial_time_30d",
+    "avg_trial_time_90d",
+    "trial_time_trend",
+    "trial_vs_avg_90d",
+    "win_rate_10",
+    "top2_rate_10",
+    "top3_rate_10",
+    "win_rate_30",
+    "top3_rate_30",
+    "avg_finish_10",
+    "avg_finish_30",
+    "finish_std_10",
+    "momentum",
+    "days_since_last_race",
+    "total_races",
+    "handicap_rank",
+    "field_size",
+    "handicap_vs_trial",
+    "field_avg_win_rate",
+    "field_max_win_rate",
+    "field_avg_finish",
+    "form_rank_in_field",
+    "relative_win_strength",
+    "gap_to_top_rival",
+    "rider_track_win_rate",
+    "rider_wet_win_rate"
+  ],
+  "random_seed": 42,
+  "library_versions": {
+    "lightgbm": "4.6.0",
+    "numpy": "2.4.3",
+    "sklearn": "1.8.0"
+  },
+  "split": {
+    "warmup": [
+      "2021-01-01",
+      "2021-07-01"
+    ],
+    "train": [
+      "2021-07-01",
+      "2025-07-02"
+    ],
+    "val": [
+      "2025-07-02",
+      "2025-11-02"
+    ],
+    "test": [
+      "2025-11-02",
+      "2026-05-01"
+    ]
+  },
+  "trained_through_date": "2025-11-02",
+  "validation_end_date": "2025-11-02",
+  "data_range": {
+    "start": "2021-01-02",
+    "end": "2026-04-04"
+  },
+  "feature_cache": "features_59ed3830455d1c6a.parquet",
+  "version": "v006",
+  "created_at": "2026-04-04T07:28:52.489247+00:00"
+}

@@ -1,0 +1,175 @@
+{
+  "model_type": "lambdarank",
+  "params": {
+    "objective": "lambdarank",
+    "metric": "ndcg",
+    "ndcg_eval_at": [
+      1,
+      3
+    ],
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "min_data_in_leaf": 50,
+    "feature_fraction": 0.9,
+    "bagging_fraction": 0.9,
+    "bagging_freq": 1,
+    "lambda_l1": 0.0,
+    "lambda_l2": 0.0,
+    "verbosity": -1,
+    "seed": 42
+  },
+  "temperature": 0.8559455280023937,
+  "metrics": {
+    "win_accuracy": 0.4584837545126354,
+    "top3_overlap": 0.6695109944207526,
+    "brier_score": 0.09112726129198041,
+    "brier_baseline": 0.11624894096970387
+  },
+  "gate": {
+    "passed": true,
+    "checks": {
+      "win_accuracy": true,
+      "top3_overlap": true,
+      "brier_score": true
+    }
+  },
+  "compare_with": {
+    "version": "v003",
+    "comparison": {
+      "win_accuracy": {
+        "old": 0.45311638168781027,
+        "new": 0.4584837545126354,
+        "delta": 0.005367372824825134
+      },
+      "top3_overlap": {
+        "old": 0.6688729545872402,
+        "new": 0.6695109944207526,
+        "delta": 0.0006380398335124049
+      },
+      "brier_score": {
+        "old": 0.09102161771622261,
+        "new": 0.09112726129198041,
+        "delta": 0.00010564357575780503
+      }
+    }
+  },
+  "feature_columns": [
+    "track_id",
+    "race_number",
+    "track_condition",
+    "weather",
+    "temperature",
+    "humidity",
+    "track_temperature",
+    "grade",
+    "distance",
+    "post_position",
+    "handicap_meters",
+    "trial_time",
+    "trial_deviation",
+    "generation",
+    "is_home_track",
+    "rider_age",
+    "trial_time_rank",
+    "field_avg_trial",
+    "field_trial_std",
+    "trial_time_diff_from_best",
+    "avg_trial_time_30d",
+    "avg_trial_time_90d",
+    "trial_time_trend",
+    "trial_vs_avg_90d",
+    "computed_trial_deviation",
+    "trial_deviation_trend",
+    "predicted_race_time",
+    "predicted_race_time_rank",
+    "trial_time_zscore",
+    "win_rate_10",
+    "top2_rate_10",
+    "top3_rate_10",
+    "win_rate_30",
+    "top3_rate_30",
+    "avg_finish_10",
+    "avg_finish_30",
+    "finish_std_10",
+    "momentum",
+    "days_since_last_race",
+    "total_races",
+    "avg_start_timing_10",
+    "avg_start_timing_30",
+    "start_timing_consistency",
+    "handicap_rank",
+    "field_size",
+    "handicap_range_in_field",
+    "handicap_group",
+    "handicap_vs_trial",
+    "is_wet_condition",
+    "predicted_vs_handicap",
+    "field_avg_win_rate",
+    "field_max_win_rate",
+    "field_avg_finish",
+    "form_rank_in_field",
+    "relative_win_strength",
+    "gap_to_top_rival",
+    "rider_track_win_rate",
+    "rider_wet_win_rate",
+    "rider_wet_top3_rate"
+  ],
+  "random_seed": 42,
+  "description": "Phase A: computed_trial_deviation, predicted_race_time, start_timing history, is_home_track, rider_age, race_number, handicap_group/range, is_wet_condition, rider_wet_top3_rate, trial_time_zscore, predicted_vs_handicap",
+  "git_hash": "f0d60d8955045ecf4f03a0a0487c08a6d5749987",
+  "library_versions": {
+    "lightgbm": "4.6.0",
+    "numpy": "2.4.3",
+    "sklearn": "1.8.0"
+  },
+  "split": {
+    "warmup": [
+      "2021-01-01",
+      "2021-07-01"
+    ],
+    "train": [
+      "2021-07-01",
+      "2025-05-01"
+    ],
+    "val": [
+      "2025-05-01",
+      "2025-11-01"
+    ],
+    "test": [
+      "2025-11-01",
+      "2026-05-01"
+    ]
+  },
+  "trained_through_date": "2025-11-01",
+  "validation_end_date": "2025-11-01",
+  "data_range": {
+    "start": "2021-01-02",
+    "end": "2026-04-04"
+  },
+  "feature_cache": "features_59ed3830455d1c6a.parquet",
+  "backtest": {
+    "total_races": 3122,
+    "profit_evaluated_races": 3047,
+    "total_stake": 183900.0,
+    "total_payout": 1081370.0,
+    "total_profit": 897470.0,
+    "roi": 4.880206634040239,
+    "hit_rate": 0.3514932720708894,
+    "max_drawdown": 0.0,
+    "sharpe_ratio": 1.5528462098438787,
+    "config": {
+      "fractional_kelly": 0.25,
+      "min_expected_value": 0.0,
+      "min_confidence": 0.1,
+      "max_candidates": 12,
+      "max_total_stake": 10000
+    },
+    "period": {
+      "start": "2025-11-01",
+      "end": "2026-05-01"
+    },
+    "use_final_odds": true
+  },
+  "version": "v008",
+  "created_at": "2026-04-05T00:42:44.262651+00:00"
+}

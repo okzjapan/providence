@@ -1,4 +1,8 @@
-data/
+data/*
+!data/models/
+data/cache/
+data/screenshots/
+data/dom_investigation/
 data/jrdb/
 *.db
 *.sqlite

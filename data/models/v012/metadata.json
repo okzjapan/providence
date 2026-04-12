@@ -1,0 +1,249 @@
+{
+  "model_type": "ensemble",
+  "ensemble_keys": [
+    "lambdarank",
+    "xendcg",
+    "binary_top2",
+    "focal_value",
+    "binary_win",
+    "huber"
+  ],
+  "ensemble_weights": {
+    "lambdarank": 0.3,
+    "xendcg": 0.15,
+    "binary_top2": 0.2,
+    "focal_value": 0.15,
+    "binary_win": 0.1,
+    "huber": 0.1
+  },
+  "params": {
+    "lambdarank": {
+      "objective": "lambdarank",
+      "metric": "ndcg",
+      "ndcg_eval_at": [
+        1,
+        3
+      ],
+      "learning_rate": 0.05,
+      "num_leaves": 63,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.9,
+      "bagging_fraction": 0.9,
+      "bagging_freq": 1,
+      "lambda_l1": 0.0,
+      "lambda_l2": 0.0,
+      "verbosity": -1,
+      "seed": 42
+    },
+    "xendcg": {
+      "objective": "rank_xendcg",
+      "metric": "ndcg",
+      "ndcg_eval_at": [
+        1,
+        3
+      ],
+      "learning_rate": 0.05,
+      "num_leaves": 63,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.9,
+      "bagging_fraction": 0.9,
+      "bagging_freq": 1,
+      "lambda_l1": 0.0,
+      "lambda_l2": 0.0,
+      "verbosity": -1,
+      "seed": 42
+    },
+    "binary_top2": {
+      "objective": "binary",
+      "metric": "binary_logloss",
+      "is_unbalance": true,
+      "learning_rate": 0.05,
+      "num_leaves": 63,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.9,
+      "bagging_fraction": 0.9,
+      "bagging_freq": 1,
+      "lambda_l1": 0.0,
+      "lambda_l2": 0.0,
+      "verbosity": -1,
+      "seed": 42
+    },
+    "focal_value": {
+      "learning_rate": 0.02,
+      "num_leaves": 31,
+      "min_data_in_leaf": 100,
+      "feature_fraction": 0.8,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 1,
+      "lambda_l1": 0.5,
+      "lambda_l2": 0.5,
+      "verbosity": -1,
+      "seed": 42,
+      "objective": "focal_loss_custom"
+    },
+    "binary_win": {
+      "objective": "binary",
+      "metric": "binary_logloss",
+      "is_unbalance": true,
+      "learning_rate": 0.01,
+      "num_leaves": 31,
+      "min_data_in_leaf": 100,
+      "feature_fraction": 0.8,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 1,
+      "lambda_l1": 1.0,
+      "lambda_l2": 1.0,
+      "verbosity": -1,
+      "seed": 42
+    },
+    "huber": {
+      "objective": "huber",
+      "metric": "huber",
+      "huber_delta": 1.0,
+      "learning_rate": 0.05,
+      "num_leaves": 63,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.9,
+      "bagging_fraction": 0.9,
+      "bagging_freq": 1,
+      "lambda_l1": 0.0,
+      "lambda_l2": 0.0,
+      "verbosity": -1,
+      "seed": 42
+    }
+  },
+  "temperature": 1.0,
+  "metrics": {
+    "win_accuracy": 0.45391931780911776,
+    "top3_overlap": 0.6672132939761779,
+    "brier_score": 0.09123935342478522,
+    "brier_baseline": 0.11625277068692026
+  },
+  "gate": {
+    "passed": true,
+    "checks": {
+      "win_accuracy": true,
+      "top3_overlap": true,
+      "brier_score": true
+    }
+  },
+  "compare_with": {
+    "version": "v011",
+    "comparison": {
+      "win_accuracy": {
+        "old": 0.4519514594949164,
+        "new": 0.45391931780911776,
+        "delta": 0.001967858314201376
+      },
+      "top3_overlap": {
+        "old": 0.668306548595178,
+        "new": 0.6672132939761779,
+        "delta": -0.0010932546190001169
+      },
+      "brier_score": {
+        "old": 0.09124307859739789,
+        "new": 0.09123935342478522,
+        "delta": -3.7251726126702467e-06
+      }
+    }
+  },
+  "feature_columns": [
+    "track_id",
+    "race_number",
+    "track_condition",
+    "weather",
+    "temperature",
+    "humidity",
+    "track_temperature",
+    "grade",
+    "distance",
+    "post_position",
+    "handicap_meters",
+    "trial_time",
+    "trial_deviation",
+    "generation",
+    "is_home_track",
+    "rider_age",
+    "trial_time_rank",
+    "field_avg_trial",
+    "field_trial_std",
+    "trial_time_diff_from_best",
+    "avg_trial_time_30d",
+    "avg_trial_time_90d",
+    "trial_time_trend",
+    "trial_vs_avg_90d",
+    "computed_trial_deviation",
+    "trial_deviation_trend",
+    "predicted_race_time",
+    "predicted_race_time_rank",
+    "trial_time_zscore",
+    "win_rate_10",
+    "top2_rate_10",
+    "top3_rate_10",
+    "win_rate_30",
+    "top3_rate_30",
+    "avg_finish_10",
+    "avg_finish_30",
+    "finish_std_10",
+    "momentum",
+    "days_since_last_race",
+    "total_races",
+    "avg_start_timing_10",
+    "avg_start_timing_30",
+    "start_timing_consistency",
+    "handicap_rank",
+    "field_size",
+    "handicap_range_in_field",
+    "handicap_group",
+    "handicap_vs_trial",
+    "is_wet_condition",
+    "predicted_vs_handicap",
+    "field_avg_win_rate",
+    "field_max_win_rate",
+    "field_avg_finish",
+    "form_rank_in_field",
+    "relative_win_strength",
+    "gap_to_top_rival",
+    "rider_track_win_rate",
+    "rider_wet_win_rate",
+    "rider_wet_top3_rate"
+  ],
+  "calibration_input": "ensemble_combined",
+  "pair_blend_alpha": 0.0,
+  "random_seed": 42,
+  "description": "V012: 6-model ensemble (xendcg+focal_value) + sample_weight + binary_win_lr0.01 + place_support + edge_filter",
+  "git_hash": "d2014a08e5f5465cc7a5aac8dc5fa0ec61d4a5b2",
+  "library_versions": {
+    "lightgbm": "4.6.0",
+    "numpy": "2.4.3",
+    "sklearn": "1.8.0"
+  },
+  "split": {
+    "warmup": [
+      "2021-01-01",
+      "2021-07-01"
+    ],
+    "train": [
+      "2021-07-01",
+      "2025-05-01"
+    ],
+    "val": [
+      "2025-05-01",
+      "2025-11-01"
+    ],
+    "test": [
+      "2025-11-01",
+      "2026-05-01"
+    ]
+  },
+  "trained_through_date": "2025-11-01",
+  "validation_end_date": "2025-11-01",
+  "data_range": {
+    "start": "2021-01-02",
+    "end": "2026-04-05"
+  },
+  "feature_cache": "features_b41dac6675181290.parquet",
+  "calibration": "isotonic",
+  "version": "v012",
+  "created_at": "2026-04-08T08:32:23.453539+00:00"
+}
