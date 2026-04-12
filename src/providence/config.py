@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     slack_webhook_url: str = ""
+    winticket_pin: str = ""
+    chrome_debug_port: int = 9222
+    auto_bet_max_amount: int = 100
 
     jrdb_user_id: str = ""
     jrdb_password: str = ""

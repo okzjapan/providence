@@ -17,7 +17,7 @@ from providence.features.loader import DataLoader
 from providence.features.pipeline import FeaturePipeline
 from providence.model.predictor import Predictor
 from providence.model.store import ModelStore
-from providence.services.autobet import run_autobet_tick, run_daily_overview, run_morning_sync
+from providence.services.autobet import run_autobet_tick, run_daemon, run_daily_overview, run_morning_sync
 
 autobet_app = typer.Typer()
 console = Console()
@@ -105,6 +105,7 @@ def tick_command(
     slack_mention: str = typer.Option(
         "<@U070Q54JAAC>", "--slack-mention", help="Mention for S-rank bets"
     ),
+    auto_bet: bool = typer.Option(False, "--auto-bet", help="Enable auto-betting via Chrome CDP for S-rank"),
 ) -> None:
     """Run prediction for approaching races and send Slack notifications.
 
@@ -145,6 +146,7 @@ def tick_command(
         lead_minutes=lead_minutes,
         save=save,
         dry_run=dry_run,
+        auto_bet=auto_bet,
         force_race=force_race,
     )
 
@@ -170,6 +172,58 @@ def tick_command(
             "✓" if r.slack_sent else "-",
         )
     console.print(table)
+
+
+@autobet_app.command("daemon")
+def daemon_command(
+    auto_bet: bool = typer.Option(False, "--auto-bet", help="Enable auto-betting via Chrome CDP for S-rank"),
+    model_version: str = typer.Option("latest", "--model-version"),
+    tick_interval: int = typer.Option(180, "--tick-interval", help="Tick interval in seconds"),
+    morning_sync_hour: int = typer.Option(9, "--morning-sync-hour", help="Hour (JST) to run morning sync"),
+    slack_mention: str = typer.Option(
+        "<@U070Q54JAAC>", "--slack-mention", help="Mention for S-rank bets"
+    ),
+) -> None:
+    """Run 24/7 daemon: morning-sync + tick loop + post-race collection.
+
+    Single command for full automation. Ctrl+C to stop.
+    """
+    settings = get_settings()
+    session_factory = get_session_factory(settings)
+    repo = Repository()
+    loader = DataLoader()
+    config = build_strategy_config(
+        ticket_types=PROVEN_STRATEGY_DEFAULTS["ticket_types"],
+        max_candidates=PROVEN_STRATEGY_DEFAULTS["max_candidates"],
+        fractional_kelly=PROVEN_STRATEGY_DEFAULTS["fractional_kelly"],
+        min_confidence=PROVEN_STRATEGY_DEFAULTS["min_confidence"],
+        min_expected_value=PROVEN_STRATEGY_DEFAULTS["min_expected_value"],
+    )
+
+    def predictor_factory():
+        return Predictor(ModelStore(), FeaturePipeline(), loader, version=model_version)
+
+    webhook_url = settings.slack_webhook_url or None
+    console.print("[bold green]Daemon starting[/bold green]")
+    console.print(f"  Auto-bet: {'ON' if auto_bet else 'OFF'}")
+    console.print(f"  Tick interval: {tick_interval}s")
+    console.print(f"  Morning sync: {morning_sync_hour}:00 JST")
+    console.print(f"  Slack: {'configured' if webhook_url else 'not configured'}")
+    console.print("  Press Ctrl+C to stop")
+
+    run_daemon(
+        session_factory=session_factory,
+        repo=repo,
+        predictor_factory=predictor_factory,
+        loader=loader,
+        config=config,
+        settings=settings,
+        slack_webhook_url=webhook_url,
+        slack_mention=slack_mention,
+        auto_bet=auto_bet,
+        tick_interval_sec=tick_interval,
+        morning_sync_hour=morning_sync_hour,
+    )
 
 
 @autobet_app.command("calibrate-model-b")

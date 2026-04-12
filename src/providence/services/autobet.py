@@ -85,6 +85,7 @@ def run_autobet_tick(
     lead_minutes: float = 10.0,
     save: bool = True,
     dry_run: bool = False,
+    auto_bet: bool = False,
     force_race: tuple[TrackCode, int] | None = None,
 ) -> list[TickResult]:
     """3分ごとに呼ばれる tick（同期関数）。"""
@@ -134,8 +135,12 @@ def run_autobet_tick(
                 slack_mention=slack_mention,
                 save=save,
                 dry_run=dry_run,
+                auto_bet=auto_bet,
             )
         results.append(result)
+
+    # --- 締切通過レースの後処理（確定オッズ + 結果 + 照合）---
+    _collect_post_race_data(session_factory, repo, settings)
 
     if results:
         p1 = sum(1 for r in results if r.phase == "phase1")
@@ -197,6 +202,16 @@ def _run_phase1(
     except Exception as exc:  # noqa: BLE001
         log_ctx.warning("phase1_scrape_failed", error=str(exc))
 
+    # T-10min オッズスナップショット
+    try:
+        _scrape_odds_for_race(
+            track_code, target_date, race_number, session_factory, repo, settings,
+            source_name="odds_t10",
+        )
+        log_ctx.info("phase1_odds_t10_saved")
+    except Exception as exc:  # noqa: BLE001
+        log_ctx.warning("phase1_odds_t10_failed", error=str(exc))
+
     _load_history_with_cache(predictor, loader, target_date)
 
     decision_time = resolve_judgment_time(None)
@@ -242,19 +257,8 @@ def _run_phase1(
     if _was_previously_non_candidate(candidate.race_id):
         log_ctx.info("phase1_upgraded_to_candidate", confidence=round(confidence, 4))
         if slack_webhook_url and not dry_run:
-            from providence.notification.slack import SLACK_MENTION_OKZ
-
-            upgrade_text = (
-                f"{SLACK_MENTION_OKZ} 📈 *{track_name} R{race_number}* が投票候補に昇格しました"
-                f"（試走タイム反映後の信頼度: *{confidence:.2f}*）\nPhase 2 で最終判定します"
-            )
-            import httpx
-
-            try:
-                httpx.post(slack_webhook_url, json={"text": upgrade_text}, timeout=10.0)
-                slack_sent = True
-            except httpx.HTTPError:
-                pass
+            _send_upgrade_notification(slack_webhook_url, track_name, race_number, confidence)
+            slack_sent = True
 
     _save_bundle_cache(candidate.race_id, prediction_result.bundle)
     _mark_phase1_done(candidate.race_id, notify_sent=False)
@@ -283,8 +287,9 @@ def _run_phase2(
     slack_mention: str,
     save: bool,
     dry_run: bool,
+    auto_bet: bool = False,
 ) -> TickResult:
-    """Phase 2: 最新オッズ → 戦略 → Slack 通知。"""
+    """Phase 2: 最新オッズ → 戦略 → Slack 通知 → (S ランクなら) 自動投票。"""
     track_code = TrackCode(candidate.track_id)
     track_name = track_code.japanese_name
     race_number = candidate.race_number
@@ -292,20 +297,26 @@ def _run_phase2(
 
     target_date = _extract_date(candidate)
     decision_time = resolve_judgment_time(None)
+    t_phase2_start = time.monotonic()
 
+    # --- オッズ取得（戦略用） ---
+    t0 = time.monotonic()
     try:
-        _scrape_odds_for_race(track_code, target_date, race_number, session_factory, repo, settings)
-        log_ctx.info("phase2_odds_scraped")
+        _scrape_odds_for_race(
+            track_code, target_date, race_number, session_factory, repo, settings,
+            source_name="autorace_jp",
+        )
     except Exception as exc:  # noqa: BLE001
         log_ctx.warning("phase2_odds_scrape_failed", error=str(exc))
+    odds_sec = time.monotonic() - t0
 
+    # --- 予測 ---
+    t0 = time.monotonic()
     cached_bundle = _load_bundle_cache(candidate.race_id)
-
     if cached_bundle is not None:
         prediction_result = _rebuild_prediction_from_cache(
             cached_bundle, candidate, session_factory, repo, config, decision_time,
         )
-        log_ctx.info("phase2_used_cached_bundle")
     else:
         _load_history_with_cache(predictor, loader, target_date)
         try:
@@ -329,32 +340,81 @@ def _run_phase2(
                 race_number=race_number, status="prediction_failed",
                 phase="phase2", error=str(exc),
             )
+    prediction_sec = time.monotonic() - t0
 
+    # --- Model B フィルタ ---
     _apply_model_b_filter(prediction_result, predictor, loader, target_date, log_ctx)
 
     has_bets = bool(prediction_result.strategy.recommended_bets)
     total_bet = prediction_result.strategy.total_recommended_bet
 
+    # --- ランク判定 ---
+    from providence.notification.slack import judge_rank
+
+    judgment = judge_rank(prediction_result)
+
+    # --- Slack 通知（予測結果） ---
     slack_sent = False
     if slack_webhook_url and not dry_run:
         slack_sent = send_prediction_to_slack(
             slack_webhook_url, prediction_result,
-            mention=slack_mention if has_bets else "",
+            mention=slack_mention if judgment.is_recommended else "",
         )
     elif dry_run:
         _log_dry_run(prediction_result)
 
+    # --- 自動投票（S ランクのみ） ---
+    bet_sec = 0.0
+    bet_results = []
+    if auto_bet and judgment.is_recommended and has_bets and not dry_run:
+        t0 = time.monotonic()
+        bet_results = _execute_auto_bet(
+            prediction_result, track_code, race_number, settings, slack_webhook_url, log_ctx,
+        )
+        bet_sec = time.monotonic() - t0
+
+    # --- DB 保存 ---
     if save:
         try:
             save_prediction(prediction_result, decision_time, session_factory, repo)
         except Exception as exc:  # noqa: BLE001
             log_ctx.error("phase2_save_failed", error=str(exc))
 
+    # --- 投票/予測完了時オッズスナップショット ---
+    try:
+        _scrape_odds_for_race(
+            track_code, target_date, race_number, session_factory, repo, settings,
+            source_name="odds_at_bet",
+        )
+        log_ctx.info("phase2_odds_at_bet_saved")
+    except Exception as exc:  # noqa: BLE001
+        log_ctx.debug("phase2_odds_at_bet_failed", error=str(exc))
+
+    # --- 処理時間記録 ---
+    total_sec = time.monotonic() - t_phase2_start
+    deadline_dt = candidate.telvote_close_at
+    now = datetime.now(tz=JST).replace(tzinfo=None)
+    minutes_before_deadline = (deadline_dt - now).total_seconds() / 60.0 if deadline_dt else 0.0
+
+    log_ctx.info(
+        "phase2_timing",
+        odds_sec=round(odds_sec, 1),
+        prediction_sec=round(prediction_sec, 1),
+        bet_sec=round(bet_sec, 1),
+        total_sec=round(total_sec, 1),
+        minutes_before_deadline=round(minutes_before_deadline, 1),
+    )
+
     status = "notified" if slack_sent else ("dry_run" if dry_run else "no_webhook")
+    if bet_results and all(r.success for r in bet_results):
+        status = "bet_placed"
+    elif bet_results and not all(r.success for r in bet_results):
+        status = "bet_partial"
+
     log_ctx.info(
         "phase2_race_processed", status=status, has_bets=has_bets,
-        total_bet=total_bet, confidence=prediction_result.strategy.confidence_score,
-        skip_reason=prediction_result.strategy.skip_reason,
+        total_bet=total_bet, rank=judgment.rank.value,
+        confidence=prediction_result.strategy.confidence_score,
     )
 
     return TickResult(
@@ -362,6 +422,123 @@ def _run_phase2(
         race_number=race_number, status=status, phase="phase2",
         has_recommended_bets=has_bets, total_recommended_bet=total_bet, slack_sent=slack_sent,
     )
+
+
+def _execute_auto_bet(
+    prediction_result: PredictionResult,
+    track_code: TrackCode,
+    race_number: int,
+    settings: Settings,
+    slack_webhook_url: str | None,
+    log_ctx,
+) -> list:
+    """S ランクの買い目を WinTicket で自動投票する。"""
+    from providence.betting.winticket_browser import BetOrder as WTBetOrder
+    from providence.betting.winticket_browser import WinTicketBrowser
+
+    pin = settings.winticket_pin
+    if not pin:
+        log_ctx.warning("auto_bet_skip_no_pin")
+        return []
+
+    kill_switch = Path("data/KILL_SWITCH")
+    if kill_switch.exists():
+        log_ctx.warning("auto_bet_skip_kill_switch")
+        return []
+
+    max_amount = getattr(settings, "auto_bet_max_amount", 100)
+
+    orders = []
+    for bet in prediction_result.strategy.recommended_bets:
+        amount = min(int(bet.recommended_bet), max_amount)
+        if amount < 100:
+            continue
+        orders.append(WTBetOrder(
+            track_code=track_code,
+            race_number=race_number,
+            ticket_type=bet.ticket_type,
+            combination=bet.combination,
+            amount=amount,
+        ))
+
+    if not orders:
+        return []
+
+    browser = WinTicketBrowser(debug_port=settings.chrome_debug_port)
+    results = []
+    try:
+        browser.connect()
+        for order in orders:
+            result = browser._place_single_bet(order, pin)
+            if not result.success:
+                log_ctx.warning("auto_bet_failed", error=result.error)
+                time.sleep(3)
+                result = browser._place_single_bet(order, pin)
+                if not result.success:
+                    log_ctx.error("auto_bet_retry_failed", error=result.error)
+            results.append(result)
+    except Exception as exc:  # noqa: BLE001
+        log_ctx.error("auto_bet_error", error=str(exc))
+    finally:
+        browser.close()
+
+    # Slack 投票結果通知
+    if slack_webhook_url and results:
+        _send_bet_result_to_slack(
+            slack_webhook_url, prediction_result, results, track_code, race_number,
+        )
+
+    return results
+
+
+def _send_bet_result_to_slack(
+    webhook_url: str,
+    prediction_result: PredictionResult,
+    results: list,
+    track_code: TrackCode,
+    race_number: int,
+) -> None:
+    """投票完了/失敗を Slack に通知する。"""
+    import httpx
+
+    from providence.notification.slack import SLACK_MENTION_OKZ
+    from providence.strategy.normalize import format_combination
+
+    header = f"{track_code.japanese_name} R{race_number} / {prediction_result.target_date}"
+    success_lines = []
+    fail_lines = []
+    for r in results:
+        combo = format_combination(r.order.ticket_type, r.order.combination)
+        if r.success:
+            receipt = f"受付番号: {r.receipt_id}" if r.receipt_id else ""
+            success_lines.append(f"✅ `{r.order.ticket_type.value}` {combo}  ¥{r.order.amount:,} → 確定 {receipt}")
+        else:
+            fail_lines.append(f"❌ `{r.order.ticket_type.value}` {combo}  ¥{r.order.amount:,} → 失敗: {r.error}")
+
+    if success_lines and not fail_lines:
+        icon = "✅"
+        title = "投票完了"
+    elif fail_lines and not success_lines:
+        icon = "❌"
+        title = "投票失敗"
+    else:
+        icon = "⚠"
+        title = "投票一部失敗"
+
+    balance_line = ""
+    for r in reversed(results):
+        if r.balance_after is not None:
+            balance_line = f"\n残高: {r.balance_after:,}pt"
+            break
+
+    text = f"{SLACK_MENTION_OKZ} {icon} *{title}*\n{header}\n\n"
+    text += "\n".join(success_lines + fail_lines)
+    text += balance_line
+
+    try:
+        httpx.post(webhook_url, json={"text": text}, timeout=10.0)
+    except httpx.HTTPError as exc:
+        log.error("bet_result_slack_failed", error=str(exc))
 
 
 def _rebuild_prediction_from_cache(
@@ -496,12 +673,18 @@ def run_daily_overview(
     log.info("daily_overview_predicted", races=len(bundles), elapsed_sec=round(elapsed, 1))
 
     entries: list[RaceOverviewEntry] = []
+    non_candidate_race_ids: set[int] = set()
+
     for race_id, bundle in bundles.items():
         race = race_lookup.get(race_id)
         if race is None:
             continue
         track_code = TrackCode(race.track_id)
         confidence = race_confidence(bundle)
+        is_candidate = confidence >= config.min_confidence
+
+        if not is_candidate:
+            non_candidate_race_ids.add(race_id)
 
         top3 = []
         for idx, prob in sorted(bundle.ticket_probs["win"].items(), key=lambda x: x[1], reverse=True)[:3]:
@@ -513,18 +696,10 @@ def run_daily_overview(
             race_number=race.race_number,
             scheduled_start=race.scheduled_start_at,
             confidence=confidence,
-            is_candidate=confidence >= config.min_confidence,
+            is_candidate=is_candidate,
             top3_win_probs=top3,
         ))
 
-    non_candidate_race_ids = set()
-    for race_id, bundle in bundles.items():
-        race = race_lookup.get(race_id)
-        if race is None:
-            continue
-        confidence = race_confidence(bundle)
-        if confidence < config.min_confidence:
-            non_candidate_race_ids.add(race_id)
     register_overview_non_candidates(non_candidate_race_ids)
 
     n_candidates = sum(1 for e in entries if e.is_candidate)
@@ -652,7 +827,10 @@ def _scrape_entries_and_conditions(
 def _scrape_odds_for_race(
     track_code: TrackCode, race_date: date, race_number: int,
     session_factory, repo: Repository, settings: Settings,
+    source_name: str = "autorace_jp",
 ) -> None:
+    """オッズを取得して DB に保存する。source_name でスナップショットの種別を識別する。"""
+
     async def _inner():
         async with AutoraceJpScraper(settings) as scraper:
             entries = await scraper.get_race_entries(track_code, race_date, race_number)
@@ -661,6 +839,7 @@ def _scrape_odds_for_race(
         return entries, odds, conditions
 
     entries, odds, conditions = asyncio.run(_inner())
+    now = datetime.now(tz=JST).replace(tzinfo=None)
     with session_factory() as session:
         if entries.entries:
             repo.save_race_data(session, entries, None, update_race_metadata=False)
@@ -673,8 +852,8 @@ def _scrape_odds_for_race(
             if race is not None:
                 repo.save_odds(
                     session, race.id, odds.odds,
-                    captured_at=datetime.combine(race_date, datetime.min.time()),
-                    source_name="autorace_jp",
+                    captured_at=now,
+                    source_name=source_name,
                 )
 
 
@@ -716,6 +895,190 @@ def _sync_schedule(
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
+POST_RACE_COLLECTION_DELAY_MINUTES = 60.0
+_post_race_collected: set[int] = set()
+
+
+def _collect_post_race_data(session_factory, repo: Repository, settings: Settings) -> None:
+    """締切から 60 分経過したレースの確定オッズ・結果・払い戻し・損益照合を一括取得する。
+
+    60 分待つ理由:
+    - レース終了・着順確定・払い戻し計算に十分な時間を確保
+    - 取得漏れを防ぐ（早すぎると結果未確定の場合がある）
+    """
+    from sqlalchemy import select
+
+    from providence.database.tables import Race, StrategyRun
+
+    now = datetime.now(tz=JST).replace(tzinfo=None)
+    window_start = now - timedelta(minutes=POST_RACE_COLLECTION_DELAY_MINUTES + 30)
+    window_end = now - timedelta(minutes=POST_RACE_COLLECTION_DELAY_MINUTES)
+
+    with session_factory() as session:
+        races = list(session.execute(
+            select(Race).join(StrategyRun, StrategyRun.race_id == Race.id).where(
+                StrategyRun.evaluation_mode == "live",
+                Race.telvote_close_at.is_not(None),
+                Race.telvote_close_at <= window_end,
+                Race.telvote_close_at >= window_start,
+            )
+        ).scalars())
+
+    for race in races:
+        if race.id in _post_race_collected:
+            continue
+        track_code = TrackCode(race.track_id)
+
+        # 確定オッズ
+        try:
+            _scrape_odds_for_race(
+                track_code, race.race_date, race.race_number,
+                session_factory, repo, settings,
+                source_name="odds_final",
+            )
+            log.info("final_odds_collected", track=track_code.name, race=race.race_number)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("final_odds_failed", track=track_code.name, race=race.race_number, error=str(exc))
+
+        # レース結果 + 払い戻し + 照合
+        _collect_race_results(race, track_code, session_factory, repo, settings)
+        _post_race_collected.add(race.id)
+
+
+def _collect_race_results(race, track_code: TrackCode, session_factory, repo: Repository, settings: Settings) -> None:
+    """レース結果・払い戻しを取得し、予測との損益照合を実行する。"""
+
+    async def _fetch():
+        async with AutoraceJpScraper(settings) as scraper:
+            result = await scraper.get_race_result(track_code, race.race_date, race.race_number)
+            entries = await scraper.get_race_entries(track_code, race.race_date, race.race_number)
+        return result, entries
+
+    try:
+        race_result, entries = asyncio.run(_fetch())
+    except Exception as exc:  # noqa: BLE001
+        log.debug("results_fetch_failed", track=track_code.name, race=race.race_number, error=str(exc))
+        return
+
+    if not race_result.results:
+        log.debug("results_not_yet_available", track=track_code.name, race=race.race_number)
+        return
+
+    # 結果を DB に保存
+    try:
+        with session_factory() as session:
+            repo.save_race_data(session, entries, race_result)
+    except Exception as exc:  # noqa: BLE001
+        log.error("results_save_failed", track=track_code.name, race=race.race_number, error=str(exc))
+        return
+
+    log.info("race_results_saved", track=track_code.name, race=race.race_number)
+
+    # 損益照合（predictions vs ticket_payouts）
+    try:
+        from providence.feedback.reconcile import reconcile_paper_trades
+
+        with session_factory() as session:
+            reconcile_result = reconcile_paper_trades(session, repository=repo, since_date=race.race_date)
+        log.info(
+            "reconciliation_done",
+            track=track_code.name,
+            race=race.race_number,
+            runs=reconcile_result.strategy_runs,
+            logs_written=reconcile_result.betting_logs_written,
+            payouts_missing=reconcile_result.payouts_missing_races,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("reconciliation_failed", track=track_code.name, race=race.race_number, error=str(exc))
+
+    _post_race_collected.add(race.id)
+
+
+# ---------------------------------------------------------------------------
+# Daemon (24/7 single process)
+# ---------------------------------------------------------------------------
+
+def run_daemon(
+    *,
+    session_factory,
+    repo: Repository,
+    predictor_factory,
+    loader: DataLoader,
+    config: StrategyConfig,
+    settings: Settings,
+    slack_webhook_url: str | None = None,
+    slack_mention: str = "",
+    auto_bet: bool = False,
+    tick_interval_sec: int = 180,
+    morning_sync_hour: int = 9,
+) -> None:
+    """24/7 で動き続けるデーモン。1 コマンドで全自動運用。
+
+    - 毎日 morning_sync_hour 時に morning-sync + daily overview
+    - レース時間帯（09:00-23:00）は tick_interval_sec 間隔で tick
+    - 23:00-09:00 は 5 分間隔でスリープ（翌朝を待つ）
+    - 後処理（確定オッズ・結果・照合）は tick 内で自動実行（締切 60 分後）
+    """
+    last_sync_date: date | None = None
+
+    log.info(
+        "daemon_started",
+        auto_bet=auto_bet,
+        tick_interval=tick_interval_sec,
+        morning_sync_hour=morning_sync_hour,
+    )
+
+    while True:
+        try:
+            now = datetime.now(tz=JST)
+            today = now.date()
+            hour = now.hour
+
+            # --- Morning sync（1日1回）---
+            if today != last_sync_date and hour >= morning_sync_hour:
+                log.info("daemon_morning_sync", date=str(today))
+                try:
+                    run_morning_sync(
+                        session_factory=session_factory, repo=repo, loader=loader,
+                        target_date=today, settings=settings,
+                    )
+                    predictor = predictor_factory()
+                    run_daily_overview(
+                        session_factory=session_factory, repo=repo, predictor=predictor,
+                        loader=loader, config=config, settings=settings,
+                        slack_webhook_url=slack_webhook_url, target_date=today,
+                    )
+                    last_sync_date = today
+                    log.info("daemon_morning_sync_done", date=str(today))
+                except Exception as exc:  # noqa: BLE001
+                    log.error("daemon_morning_sync_failed", error=str(exc))
+
+            # --- Tick（レース時間帯: 09:00-23:00）---
+            if morning_sync_hour <= hour <= 23:
+                try:
+                    predictor = predictor_factory()
+                    run_autobet_tick(
+                        session_factory=session_factory, repo=repo, predictor=predictor,
+                        loader=loader, config=config, settings=settings,
+                        slack_webhook_url=slack_webhook_url, slack_mention=slack_mention,
+                        auto_bet=auto_bet,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.error("daemon_tick_failed", error=str(exc))
+
+                time.sleep(tick_interval_sec)
+            else:
+                # オフ時間帯: 5分間隔でスリープ
+                time.sleep(300)
+
+        except KeyboardInterrupt:
+            log.info("daemon_stopped")
+            break
+        except Exception as exc:  # noqa: BLE001
+            log.error("daemon_unexpected_error", error=str(exc))
+            time.sleep(60)
+
 
 def _extract_date(candidate: RaceDeadlineCandidate) -> date:
     return candidate.telvote_close_at.date() if candidate.telvote_close_at else datetime.now(tz=JST).date()
@@ -778,6 +1141,22 @@ def _apply_model_b_filter(
                 result.strategy.skip_reason = "model_b_filtered"
     except Exception as exc:  # noqa: BLE001
         log_ctx.warning("model_b_filter_error", error=str(exc))
+
+
+def _send_upgrade_notification(webhook_url: str, track_name: str, race_number: int, confidence: float) -> None:
+    """朝の非推奨レースが試走タイム反映後に投票候補に昇格した際の Slack 通知。"""
+    import httpx
+
+    from providence.notification.slack import SLACK_MENTION_OKZ
+
+    text = (
+        f"{SLACK_MENTION_OKZ} 📈 *{track_name} R{race_number}* が投票候補に昇格しました"
+        f"（試走タイム反映後の信頼度: *{confidence:.2f}*）\nPhase 2 で最終判定します"
+    )
+    try:
+        httpx.post(webhook_url, json={"text": text}, timeout=10.0)
+    except httpx.HTTPError as exc:
+        log.warning("upgrade_notification_failed", error=str(exc))
 
 
 def _log_dry_run(result: PredictionResult) -> None:
